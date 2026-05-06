@@ -68,19 +68,16 @@ def detect_ewma(
     values: np.ndarray,
     alpha: float = 0.3,
     k: float = 3.0,
-    warmup: int = 20,
+    warmup: int = 30,
 ) -> np.ndarray:
     """
     EWMA (Exponentially Weighted Moving Average) detector.
 
-    Calcula média suavizada exponencialmente e marca como anômalo
-    quando z_t ultrapassa μ ± kσ (limites de controle 3-sigma).
-
     Args:
         values: série temporal univariada (latência p95)
-        alpha: fator de suavização (0.3 = equilíbrio sensibilidade/suavização)
-        k: fator de sensibilidade (3 = limites 3-sigma)
-        warmup: pontos iniciais para estimar μ e σ
+        alpha: fator de suavização
+        k: fator de sensibilidade (limites k-sigma)
+        warmup: pontos iniciais para estimar μ e σ (30 = 150s @ 5s interval)
 
     Returns:
         array binário (0=normal, 1=anomalia)
@@ -88,25 +85,39 @@ def detect_ewma(
     n = len(values)
     predictions = np.zeros(n, dtype=int)
 
+    # Limpar NaN/inf
+    values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+
     if n < warmup:
         return predictions
 
-    # Estimar baseline com período de warmup
-    mu = np.mean(values[:warmup])
-    sigma = np.std(values[:warmup])
+    # Filtrar zeros do warmup (sem requisições = sem latência)
+    warmup_vals = values[:warmup]
+    warmup_nonzero = warmup_vals[warmup_vals > 0]
 
-    if sigma == 0:
-        sigma = 1e-6  # Evitar divisão por zero
+    if len(warmup_nonzero) < 5:
+        # Poucos dados no warmup, usar todos os dados não-zero como referência
+        all_nonzero = values[values > 0]
+        if len(all_nonzero) < 5:
+            return predictions
+        mu = np.median(all_nonzero)
+        sigma = np.std(all_nonzero)
+    else:
+        mu = np.mean(warmup_nonzero)
+        sigma = np.std(warmup_nonzero)
 
-    # Limites de controle
+    if sigma < 1e-9:
+        sigma = mu * 0.1 if mu > 0 else 1e-6
+
     ucl = mu + k * sigma
     lcl = mu - k * sigma
 
     # EWMA
     z = mu
     for t in range(n):
-        z = alpha * values[t] + (1 - alpha) * z
-        if z > ucl or z < lcl:
+        if values[t] > 0:  # Ignorar pontos sem dados
+            z = alpha * values[t] + (1 - alpha) * z
+        if z > ucl or (z < lcl and z > 0):
             predictions[t] = 1
 
     return predictions
@@ -276,8 +287,12 @@ def load_csv(path: str) -> dict:
         for r in rows
     ])
 
+    # Tratar NaN: substituir por 0 (métricas ausentes = sem atividade)
+    features = np.nan_to_num(features, nan=0.0)
+
     # Métrica univariada para EWMA (latência p95)
     latency = features[:, 0]
+    latency = np.nan_to_num(latency, nan=0.0)
 
     return {
         "timestamps": timestamps,

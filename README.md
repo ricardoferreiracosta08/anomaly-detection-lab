@@ -30,7 +30,25 @@ K6, Python, scikit-learn, numpy — tudo roda em container.
 | **Shift** | Exp 7 | Exp 8 | Exp 9 |
 
 - **Fator A** — Padrão de carga (3 níveis): burst, ramp-up irregular, load-shifting
-- **Fator B** — Detector (3 níveis): EWMA, Isolation Forest, LOF
+- **Fator B** — Detector (3 níveis): EWMA, Isolation Forest, LOF 
+
+#####################################################
+
+FATOR B == >>> (nao sao fatores porque noa impactam no experimento)
+
+comparar com HPA??
+
+--
+
+Opção 1: Mudar a Nomenclatura (A Solução Diplomática)Em computação e ciência de dados, quando comparamos algoritmos, o algoritmo é a variável que queremos avaliar. Se o seu orientador não aceita chamá-lo de "fator", use os termos abaixo para descrever seu experimento sem violar as regras do DoE:Variável de Tratamento (ou apenas "Algoritmo"): Diga que o seu experimento possui 1 Fator principal (o Padrão de Carga, com 3 níveis) e que você avaliará o desempenho de 3 algoritmos diferentes sobre esse fator.Abordagem OFAT Adaptada (One Factor at a Time): Você estará rodando um experimento de um único fator (Carga do K8s) repetido para 3 ferramentas distintas.
+
+--
+
+"O experimento foi conduzido utilizando um delineamento de bloco único, onde o Padrão de Carga atuou como o fator principal operando em 3 níveis distintos. Para cada nível de carga, foram avaliados 3 algoritmos de detecção de anomalias (EWCMA, IF e LOF). Para garantir a estabilidade dos resultados e mitigar interferências estocásticas da orquestração do Kubernetes, foram realizadas 3 replicações independentes para cada combinação, totalizando 27 baterias de testes."
+
+####################
+
+
 - **Repetições**: 3 rodadas por cenário de carga (reprodutibilidade)
 - **Total**: 9 CSVs (3 cenários × 3 rodadas) → 27 avaliações (9 CSVs × 3 detectores)
 
