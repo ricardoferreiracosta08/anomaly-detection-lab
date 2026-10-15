@@ -1,0 +1,20 @@
+# Configuração local (copie de .env.example)
+.env
+kubeconfig*.yaml
+
+# Gerados pelo experimento (os da qualificação ficam em *_qualificacao/, versionados)
+datasets/*
+!datasets/.gitkeep
+datasets_hpa/
+results/*
+!results/.gitkeep
+k3d-config.yaml
+.stamps/
+
+# Python
+__pycache__/
+*.pyc
+
+# Sistema
+.DS_Store
+*.log
