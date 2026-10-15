@@ -1,0 +1,54 @@
+{
+  "by_scenario": {
+    "burst": {
+      "f1": 0.3239,
+      "mttd": 10.334,
+      "precision": 0.5357,
+      "recall": 0.344
+    },
+    "rampup": {
+      "f1": 0.1892,
+      "mttd": 22.5638,
+      "precision": 0.3104,
+      "recall": 0.1746
+    },
+    "shift": {
+      "f1": 0.1896,
+      "mttd": 37.6193,
+      "precision": 0.7037,
+      "recall": 0.1118
+    }
+  },
+  "by_detector": {
+    "EWMA": {
+      "f1": 0.3047,
+      "mttd": 20.8338,
+      "precision": 0.4016,
+      "recall": 0.4769
+    },
+    "IF": {
+      "f1": 0.2975,
+      "mttd": 19.8156,
+      "precision": 0.5463,
+      "recall": 0.2158
+    },
+    "LOF": {
+      "f1": 0.1295,
+      "mttd": 32.1875,
+      "precision": 0.3047,
+      "recall": 0.086
+    },
+    "DBSCAN": {
+      "f1": 0.206,
+      "mttd": 20.3125,
+      "precision": 0.6509,
+      "recall": 0.1271
+    },
+    "AE": {
+      "f1": 0.2334,
+      "mttd": 23.3333,
+      "precision": 0.6796,
+      "recall": 0.1449
+    }
+  }
+}

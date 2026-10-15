@@ -1,105 +1,119 @@
 # =============================================================================
-# Anomaly Detection Lab — Makefile 100% Idempotente
+# Anomaly Detection Lab — Makefile 100% idempotente
 #
-# QUALQUER comando pode ser executado em QUALQUER ordem.
-# Dependências são resolvidas automaticamente.
+# QUALQUER alvo pode ser executado em QUALQUER ordem: cada um resolve as
+# próprias dependências ou falha com uma mensagem clara.
 #
-#   make experiment  ← roda setup + up + testes + análise se necessário
-#   make up          ← roda setup se necessário
-#   make test-burst  ← roda up se necessário
-#   make detect      ← avisa se não há datasets
+# Papéis (ROLE no .env):
+#   local   tudo nesta máquina (cluster + carga + análise)
+#   server  VPS: só o cluster (app, Prometheus, Grafana, detector online, HPA)
+#   client  notebook: carga (k6) + análise; fala com a VPS pela VPN
+#
+#   make help   ← lista completa
 # =============================================================================
 
+SHELL := /bin/bash
+
+ifeq (,$(wildcard .env))
+$(error .env não encontrado. Rode: cp .env.example .env  (e ajuste ROLE/CLUSTER_HOST))
+endif
 include .env
 export
 
+ROLE        ?= local
 DOCKER_NET  := host
 STAMP_DIR   := .stamps
+RENDER      := bin/render.sh
+
+# ROLE=client: kubectl usa o kubeconfig exportado pela VPS
+ifneq ($(strip $(KUBECONFIG_FILE)),)
+  ifeq ($(patsubst /%,/,$(KUBECONFIG_FILE)),/)
+    export KUBECONFIG := $(KUBECONFIG_FILE)
+  else
+    export KUBECONFIG := $(CURDIR)/$(KUBECONFIG_FILE)
+  endif
+endif
+
+ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
+	-v $(CURDIR)/datasets:/datasets -v $(CURDIR)/datasets_hpa:/datasets_hpa \
+	-v $(CURDIR)/results:/results -e PROMETHEUS_URL=$(PROM_URL) -e NAMESPACE=$(NAMESPACE) \
+	$(ANALYSIS_IMAGE)
 
 # =============================================================================
-# GUARDS — verificam estado e falham com mensagem clara
+# GUARDS
 # =============================================================================
 
 define check_docker
-	@command -v docker >/dev/null 2>&1 || \
-		{ echo "✗ Docker não instalado. Rode: ./setup.sh"; exit 1; }
-	@docker info >/dev/null 2>&1 || \
-		{ echo "✗ Docker daemon não está rodando. Rode: sudo systemctl start docker"; exit 1; }
-endef
-
-define check_k3d
-	@command -v k3d >/dev/null 2>&1 || \
-		{ echo "✗ k3d não instalado. Rode: ./setup.sh"; exit 1; }
+	@command -v docker >/dev/null 2>&1 || { echo "✗ Docker não instalado. Rode: ./setup.sh"; exit 1; }
+	@docker info >/dev/null 2>&1 || { echo "✗ Docker daemon parado. Rode: sudo systemctl start docker"; exit 1; }
 endef
 
 define check_kubectl
-	@command -v kubectl >/dev/null 2>&1 || \
-		{ echo "✗ kubectl não instalado. Rode: ./setup.sh"; exit 1; }
+	@command -v kubectl >/dev/null 2>&1 || { echo "✗ kubectl não instalado. Rode: ./setup.sh"; exit 1; }
 endef
 
-define check_cluster
-	$(call check_docker)
-	$(call check_k3d)
-	$(call check_kubectl)
-	@k3d cluster list 2>/dev/null | grep -q $(CLUSTER_NAME) || \
-		{ echo "✗ Cluster '$(CLUSTER_NAME)' não existe. Rodando 'make up'..."; $(MAKE) up; }
+define check_not_client
+	@if [ "$(ROLE)" = "client" ]; then \
+		echo "✗ 'make $@' age sobre o cluster e só roda onde ele existe (ROLE=local ou server)."; \
+		echo "  Rode na VPS."; exit 1; fi
 endef
 
-define check_images
-	@docker image inspect $(APP_IMAGE) >/dev/null 2>&1 || \
-		{ echo "→ Imagem FastAPI não encontrada. Buildando..."; $(MAKE) build; }
-	@docker image inspect $(ANALYSIS_IMAGE) >/dev/null 2>&1 || \
-		{ echo "→ Imagem Analysis não encontrada. Buildando..."; $(MAKE) build-analysis; }
+define prep_dirs
+	@mkdir -p datasets datasets_hpa results && chmod 777 datasets datasets_hpa results 2>/dev/null || true
+endef
+
+define check_analysis_image
+	@docker image inspect $(ANALYSIS_IMAGE) >/dev/null 2>&1 || { echo "→ Imagem de análise ausente. Buildando..."; $(MAKE) -s build-analysis; }
 endef
 
 define check_datasets
-	@ls datasets/*.csv >/dev/null 2>&1 || \
-		{ echo "✗ Nenhum dataset em datasets/. Rode primeiro: make experiment"; exit 1; }
+	@ls datasets/*.csv >/dev/null 2>&1 || { echo "✗ Nenhum CSV em datasets/. Rode: make experiment (ou make experiment-quick)"; exit 1; }
 endef
 
-define check_setup
-	@chmod +x setup.sh && ./setup.sh
-endef
-
-.PHONY: setup up down server-up server-down \
-        build build-analysis deploy \
+.PHONY: help setup up _up-cluster down server-up server-down ensure-cluster deploy \
+        build build-analysis rebuild import-images \
+        detector-config detector-deploy detector-logs online-replay \
+        ksm-deploy adapter-deploy hpa-mode hpa-status phase2-check \
         test-burst test-ramp test-shift \
-        detect experiment experiment-quick \
-        client-experiment status logs clean help
+        experiment experiment-quick detect k6-summary stats analyze \
+        hpa-experiment hpa-analyze \
+        vpn-check kubeconfig status logs clean purge selftest prep
 
 # =============================================================================
-# SETUP — idempotente, pode rodar N vezes
+# SETUP / CLUSTER
 # =============================================================================
 
 setup:
-	@chmod +x setup.sh
+	@chmod +x setup.sh bin/*.sh
 	@./setup.sh
 
 $(STAMP_DIR):
 	@mkdir -p $(STAMP_DIR)
 
-# =============================================================================
-# UP — resolve TUDO: setup → cluster → build → deploy
-# =============================================================================
-
+## Garante: setup → cluster → imagens → deploy completo (app, monitoramento, detector, adapter, HPA)
 up: | $(STAMP_DIR)
+	@if [ "$(ROLE)" = "client" ]; then \
+		echo "→ ROLE=client: não há cluster local; verificando a VPS pela VPN..."; \
+		$(MAKE) -s vpn-check; \
+	else \
+		$(MAKE) -s _up-cluster; \
+	fi
+
+_up-cluster:
 	$(call check_docker)
-	$(call check_setup)
-	$(call check_k3d)
+	@chmod +x setup.sh bin/*.sh && ./setup.sh
 	$(call check_kubectl)
 	@# ── Cluster ──
-	@if k3d cluster list 2>/dev/null | grep -q $(CLUSTER_NAME); then \
-		if docker port k3d-$(CLUSTER_NAME)-serverlb 2>/dev/null | grep -q ":$(APP_PORT)"; then \
+	@if k3d cluster list 2>/dev/null | grep -q "^$(CLUSTER_NAME) "; then \
+		if docker port k3d-$(CLUSTER_NAME)-serverlb 2>/dev/null | grep -q ":$(APP_PORT)$$"; then \
 			echo "→ Cluster já existe com portas corretas"; \
 		else \
 			echo "✗ Cluster existe mas com portas ERRADAS (mudou o .env?)"; \
-			echo "  Rode: make down && make up"; \
-			exit 1; \
+			echo "  Rode: make down && make up"; exit 1; \
 		fi; \
 	else \
 		echo "→ Criando cluster..."; \
 		mkdir -p $(HOME)/.kube; \
-		if [ ! -w "$(HOME)/.kube" ]; then sudo chown -R $(USER) $(HOME)/.kube; fi; \
 		k3d cluster create --config $(K3D_CONFIG) || \
 			{ echo "✗ Falha ao criar cluster. Porta em uso? Rode: make down && make up"; exit 1; }; \
 		echo "→ Aguardando API server..."; \
@@ -107,203 +121,349 @@ up: | $(STAMP_DIR)
 		sleep 5; \
 		echo "→ metrics-server..."; \
 		kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml 2>/dev/null || true; \
-		kubectl patch deployment metrics-server -n kube-system \
-			--type='json' \
-			-p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
-			2>/dev/null || true; \
+		kubectl patch deployment metrics-server -n kube-system --type='json' \
+			-p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' 2>/dev/null || true; \
 	fi
-	@# ── Build app ──
-	@if docker image inspect $(APP_IMAGE) >/dev/null 2>&1; then \
-		echo "→ Imagem FastAPI já existe"; \
-	else \
-		echo "→ Build FastAPI..."; \
-		docker build -q -t $(APP_IMAGE) ./app; \
-	fi
-	@k3d image import $(APP_IMAGE) -c $(CLUSTER_NAME) 2>/dev/null || true
-	@# ── Build analysis ──
-	@if docker image inspect $(ANALYSIS_IMAGE) >/dev/null 2>&1; then \
-		echo "→ Imagem Analysis já existe"; \
-	else \
-		echo "→ Build Analysis..."; \
-		docker build -q -t $(ANALYSIS_IMAGE) ./scripts; \
-	fi
-	@# ── Deploy ──
-	@echo "→ Aplicando manifests..."
-	@kubectl apply -f k8s/namespace.yaml
-	@kubectl apply -f k8s/monitoring/prometheus.yaml
-	@kubectl apply -f k8s/monitoring/grafana.yaml
-	@kubectl apply -f k8s/app/deployment.yaml
-	@# ── Wait ──
-	@echo "→ Aguardando pods..."
-	@kubectl wait --for=condition=ready pod -l app=fastapi -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
-	@kubectl wait --for=condition=ready pod -l app=prometheus -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
-	@kubectl wait --for=condition=ready pod -l app=grafana -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
-	@sleep 3
+	@# ── Imagens (build só se não existirem) + import no k3d ──
+	@docker image inspect $(APP_IMAGE) >/dev/null 2>&1 || { echo "→ Build FastAPI..."; docker build -q -t $(APP_IMAGE) ./app; }
+	@docker image inspect $(ANALYSIS_IMAGE) >/dev/null 2>&1 || { echo "→ Build Analysis..."; docker build -q -t $(ANALYSIS_IMAGE) ./scripts; }
+	@$(MAKE) -s import-images
+	@$(MAKE) -s deploy
 	@touch $(STAMP_DIR)/up
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════╗"
-	@echo "║  Lab READY                                                  ║"
-	@echo "║  App:        http://$(CLUSTER_HOST):$(APP_PORT)/health      ║"
-	@echo "║  Prometheus: http://$(CLUSTER_HOST):$(PROM_PORT)            ║"
-	@echo "║  Grafana:    http://$(CLUSTER_HOST):$(GRAFANA_PORT)         ║"
+	@echo "║  Lab READY  (ROLE=$(ROLE), HPA modo $(HPA_MODE))"
+	@echo "║  App:        $(APP_URL)/health"
+	@echo "║  Prometheus: $(PROM_URL)"
+	@echo "║  Grafana:    $(GRAFANA_URL)  (dashboards: Anomaly Detection Lab, Detector Online & HPA)"
 	@echo "╚══════════════════════════════════════════════════════════════╝"
 
+## Aplica todos os manifests (idempotente; não recria o cluster)
+deploy:
+	$(call check_kubectl)
+	@echo "→ Aplicando manifests..."
+	@kubectl apply -f k8s/namespace.yaml >/dev/null
+	@kubectl apply -f k8s/monitoring/prometheus.yaml >/dev/null
+	@$(RENDER) k8s/monitoring/grafana.yaml | kubectl apply -f - >/dev/null
+	@kubectl apply -f k8s/monitoring/kube-state-metrics.yaml >/dev/null
+	@kubectl apply -f k8s/app/deployment.yaml >/dev/null
+	@$(MAKE) -s detector-deploy
+	@$(MAKE) -s adapter-deploy
+	@$(MAKE) -s hpa-mode HPA_MODE=$(HPA_MODE)
+	@echo "→ Aguardando pods..."
+	@for app in fastapi prometheus grafana kube-state-metrics online-detector prometheus-adapter; do \
+		kubectl wait --for=condition=ready pod -l app=$$app -n $(NAMESPACE) --timeout=180s >/dev/null 2>&1 \
+			&& echo "  ✓ $$app" || echo "  ⚠ $$app ainda não está pronto (veja: make status)"; \
+	done
+
 down:
+	$(call check_not_client)
 	@k3d cluster delete $(CLUSTER_NAME) 2>/dev/null || true
 	@rm -f $(STAMP_DIR)/up
 	@echo "✓ Destruído"
 
-# Aliases para topologia VPS
 server-up: up
 server-down: down
 
+## Garante que há cluster acessível: local/server → make up; client → vpn-check
+ensure-cluster:
+	@if [ "$(ROLE)" = "client" ]; then $(MAKE) -s vpn-check; \
+	elif ! k3d cluster list 2>/dev/null | grep -q "^$(CLUSTER_NAME) "; then \
+		echo "→ Cluster '$(CLUSTER_NAME)' não existe. Rodando 'make up'..."; $(MAKE) -s up; fi
+
 # =============================================================================
-# BUILD — idempotentes, só rebuildam se forçado
+# BUILD
 # =============================================================================
 
 build:
 	$(call check_docker)
 	@echo "→ Build FastAPI..."
 	@docker build -q -t $(APP_IMAGE) ./app
-	@k3d image import $(APP_IMAGE) -c $(CLUSTER_NAME) 2>/dev/null || true
+	@[ "$(ROLE)" = "client" ] || k3d image import $(APP_IMAGE) -c $(CLUSTER_NAME) >/dev/null 2>&1 || true
 	@echo "✓ FastAPI OK"
 
 build-analysis:
 	$(call check_docker)
-	@echo "→ Build Analysis..."
+	@echo "→ Build Analysis (detectores, estatística, detector online)..."
 	@docker build -q -t $(ANALYSIS_IMAGE) ./scripts
+	@[ "$(ROLE)" = "client" ] || k3d image import $(ANALYSIS_IMAGE) -c $(CLUSTER_NAME) >/dev/null 2>&1 || true
 	@echo "✓ Analysis OK"
 
 rebuild: build build-analysis
+	@[ "$(ROLE)" = "client" ] || kubectl -n $(NAMESPACE) rollout restart deploy/fastapi-app deploy/online-detector >/dev/null 2>&1 || true
 	@echo "✓ Tudo rebuildado"
 
+import-images:
+	@k3d image import $(APP_IMAGE) $(ANALYSIS_IMAGE) -c $(CLUSTER_NAME) >/dev/null 2>&1 \
+		&& echo "→ Imagens importadas no k3d" || echo "⚠ Falha ao importar imagens no k3d"
+
 # =============================================================================
-# K6 TESTS — garantem que cluster está UP antes de rodar
+# FASE 2 — DETECTOR ONLINE, ADAPTER, HPA
 # =============================================================================
 
-test-burst:
-	$(call check_cluster)
-	$(call check_images)
+## ConfigMap do detector a partir do .env (só as chaves do detector)
+detector-config:
+	$(call check_kubectl)
+	@kubectl -n $(NAMESPACE) create configmap online-detector-config \
+		--from-literal=PROMETHEUS_URL=$(PROMETHEUS_INCLUSTER_URL) \
+		--from-literal=NAMESPACE=$(NAMESPACE) \
+		--from-literal=DETECTOR_PORT=$(DETECTOR_PORT) \
+		--from-literal=DETECTOR_ALGOS=$(DETECTOR_ALGOS) \
+		--from-literal=DETECTOR_STEP_SECONDS=$(DETECTOR_STEP_SECONDS) \
+		--from-literal=DETECTOR_WINDOW=$(DETECTOR_WINDOW) \
+		--from-literal=DETECTOR_GAP=$(DETECTOR_GAP) \
+		--from-literal=DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) \
+		--from-literal=DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) \
+		--from-literal=DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
+		--from-literal=TARGET_APP=$(TARGET_APP) \
+		--dry-run=client -o yaml | kubectl apply -f - >/dev/null
+	@echo "→ ConfigMap online-detector-config atualizado"
+
+## Detector online no cluster (score dos 5 detectores no Prometheus/Grafana)
+## Idempotente: o hash da configuração vai numa anotação do pod; o Kubernetes só
+## recria o pod se a configuração (ou a imagem, via make rebuild) mudou.
+DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
+detector-deploy: detector-config
+	@DETECTOR_CONFIG_HASH=$(DETECTOR_CONFIG_HASH) $(RENDER) k8s/detector/online-detector.yaml | kubectl apply -f - >/dev/null
+	@echo "→ Detector online aplicado (algos: $(DETECTOR_ALGOS); config $(DETECTOR_CONFIG_HASH))"
+
+detector-logs:
+	$(call check_kubectl)
+	@kubectl -n $(NAMESPACE) logs deploy/online-detector -f --tail=50
+
+## Testa o detector online SEM cluster, reproduzindo um CSV: make online-replay CSV=datasets/burst_run1.csv
+CSV ?= datasets/burst_run1.csv
+online-replay:
+	$(call check_analysis_image)
+	@test -f "$(CSV)" || { echo "✗ $(CSV) não existe"; exit 1; }
 	@mkdir -p results && chmod 777 results
-	@echo "→ [K6] BURST → $(APP_URL)"
+	@docker run --rm -v $(CURDIR)/$(dir $(CSV)):/in:ro -v $(CURDIR)/results:/results \
+		-e DETECTOR_ALGOS=$(DETECTOR_ALGOS) -e DETECTOR_WINDOW=$(DETECTOR_WINDOW) \
+		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) \
+		-e DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) -e DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
+		$(ANALYSIS_IMAGE) online_detector.py --replay /in/$(notdir $(CSV)) \
+		--replay-out /results/replay_$(notdir $(CSV))
+
+ksm-deploy:
+	$(call check_kubectl)
+	@kubectl apply -f k8s/monitoring/kube-state-metrics.yaml >/dev/null && echo "→ kube-state-metrics aplicado"
+
+## Prometheus Adapter: anomaly_level → external.metrics.k8s.io
+adapter-deploy:
+	$(call check_kubectl)
+	@kubectl apply -f k8s/adapter/prometheus-adapter.yaml >/dev/null
+	@echo "→ Prometheus Adapter aplicado"
+
+## Troca o modo do HPA: make hpa-mode HPA_MODE=A|B|C|D
+hpa-mode:
+	$(call check_kubectl)
+	@for d in $(HPA_B_DETECTOR) $(HPA_D_DETECTOR); do \
+		echo ",$(DETECTOR_ALGOS)," | grep -q ",$$d," || { echo "✗ Detector '$$d' do HPA não está em DETECTOR_ALGOS=$(DETECTOR_ALGOS)"; exit 1; }; done
+	@case "$(HPA_MODE)" in \
+		A) HPA_CPU_TARGET=50 HPA_DETECTOR=- $(RENDER) k8s/hpa/hpa-cpu.yaml ;; \
+		B) HPA_CPU_TARGET=50 HPA_DETECTOR=$(HPA_B_DETECTOR) $(RENDER) k8s/hpa/hpa-anomaly.yaml ;; \
+		C) HPA_CPU_TARGET=$(HPA_C_CPU_TARGET) HPA_DETECTOR=- $(RENDER) k8s/hpa/hpa-cpu.yaml ;; \
+		D) HPA_CPU_TARGET=50 HPA_DETECTOR=$(HPA_D_DETECTOR) $(RENDER) k8s/hpa/hpa-anomaly.yaml ;; \
+		*) echo "✗ HPA_MODE inválido: $(HPA_MODE) (use A, B, C ou D)" >&2; exit 1 ;; \
+	esac | kubectl apply -f - >/dev/null
+	@echo "→ HPA no modo $(HPA_MODE)"
+
+hpa-status:
+	$(call check_kubectl)
+	@kubectl -n $(NAMESPACE) get hpa fastapi-hpa -o wide
+	@echo ""; kubectl -n $(NAMESPACE) get hpa fastapi-hpa -o jsonpath='{.metadata.labels.hpa-mode}{"\n"}' | sed 's/^/modo: /'
+
+## A métrica de anomalia chegou ao HPA?
+phase2-check:
+	$(call check_kubectl)
+	@echo "── anomaly_level via external.metrics.k8s.io ──"
+	@kubectl get --raw "/apis/external.metrics.k8s.io/v1beta1/namespaces/$(NAMESPACE)/anomaly_level" 2>&1 | head -c 800; echo
+	@echo ""; echo "── HPA ──"
+	@kubectl -n $(NAMESPACE) describe hpa fastapi-hpa | sed -n '/Metrics:/,/Events:/p'
+
+# =============================================================================
+# K6 — testes avulsos (garantem cluster acessível antes)
+# =============================================================================
+
+define k6_single
+	@$(MAKE) -s ensure-cluster
+	@mkdir -p results/k6 && chmod -R 777 results
+	@echo "→ [K6] $(1) → $(APP_URL)"
 	@docker run --rm --network $(DOCKER_NET) \
-		-v $(PWD)/k6-scripts:/scripts:ro -v $(PWD)/results:/results \
-		-e BASE_URL=$(APP_URL) \
-		$(K6_IMAGE) run --out json=/results/k6_burst_$$(date +%s).json \
-		/scripts/burst-anomaly.js || true
-
-test-ramp:
-	$(call check_cluster)
-	$(call check_images)
-	@mkdir -p results && chmod 777 results
-	@echo "→ [K6] RAMP-UP → $(APP_URL)"
-	@docker run --rm --network $(DOCKER_NET) \
-		-v $(PWD)/k6-scripts:/scripts:ro -v $(PWD)/results:/results \
-		-e BASE_URL=$(APP_URL) \
-		$(K6_IMAGE) run --out json=/results/k6_rampup_$$(date +%s).json \
-		/scripts/rampup-irregular.js || true
-
-test-shift:
-	$(call check_cluster)
-	$(call check_images)
-	@mkdir -p results && chmod 777 results
-	@echo "→ [K6] SHIFT → $(APP_URL)"
-	@docker run --rm --network $(DOCKER_NET) \
-		-v $(PWD)/k6-scripts:/scripts:ro -v $(PWD)/results:/results \
-		-e BASE_URL=$(APP_URL) \
-		$(K6_IMAGE) run --out json=/results/k6_shift_$$(date +%s).json \
-		/scripts/load-shifting.js || true
-
-# =============================================================================
-# DETECT — garante que há datasets
-# =============================================================================
-
-detect:
-	$(call check_datasets)
-	$(call check_images)
-	@mkdir -p results && chmod 777 results
-	@docker run --rm \
-		-v $(PWD)/datasets:/datasets:ro -v $(PWD)/results:/results \
-		$(ANALYSIS_IMAGE) detectors.py --input /datasets/ --output /results/
-
-# =============================================================================
-# EXPERIMENT — resolve TUDO: setup → up → 9 rodadas → detect
-# =============================================================================
-
-define run_scenario
-	@echo ""; \
-	echo "══════ $(1) run $(2)/3 → $(APP_URL) ══════"; \
-	START=$$(date +%s); \
-	docker run --rm --network $(DOCKER_NET) \
-		-v $(PWD)/k6-scripts:/scripts:ro \
-		-e BASE_URL=$(APP_URL) \
-		$(K6_IMAGE) run /scripts/$(3) 2>&1 | tail -5 || true; \
-	sleep 15; \
-	docker run --rm --network $(DOCKER_NET) \
-		-v $(PWD)/datasets:/datasets \
-		-e PROMETHEUS_URL=$(PROM_URL) \
-		$(ANALYSIS_IMAGE) export_metrics.py \
-		--scenario $(4) --duration $(5) --start $$START \
-		--output /datasets/$(4)_run$(2).csv; \
-	if [ $(2) -lt 3 ] || [ "$(4)" != "shift" ]; then \
-		echo "→ Cooldown 2min..."; sleep 120; \
-	fi
+		-v $(CURDIR)/k6-scripts:/scripts:ro -v $(CURDIR)/results:/results \
+		-e BASE_URL=$(APP_URL) -e SUMMARY_FILE=/results/k6/avulso_$(1)_$$(date +%s).json \
+		$(K6_IMAGE) run --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" /scripts/$(2) || true
 endef
 
-experiment: up
-	@mkdir -p datasets results && chmod 777 datasets results
-	$(call run_scenario,BURST,1,burst-anomaly.js,burst,720)
-	$(call run_scenario,BURST,2,burst-anomaly.js,burst,720)
-	$(call run_scenario,BURST,3,burst-anomaly.js,burst,720)
-	$(call run_scenario,RAMPUP,1,rampup-irregular.js,rampup,780)
-	$(call run_scenario,RAMPUP,2,rampup-irregular.js,rampup,780)
-	$(call run_scenario,RAMPUP,3,rampup-irregular.js,rampup,780)
-	$(call run_scenario,SHIFT,1,load-shifting.js,shift,960)
-	$(call run_scenario,SHIFT,2,load-shifting.js,shift,960)
-	$(call run_scenario,SHIFT,3,load-shifting.js,shift,960)
-	@$(MAKE) detect
-	@echo ""
-	@echo "✓ COMPLETO → results/detection_results.csv"
+test-burst:
+	$(call k6_single,burst,burst-anomaly.js)
+test-ramp:
+	$(call k6_single,rampup,rampup-irregular.js)
+test-shift:
+	$(call k6_single,shift,load-shifting.js)
 
-client-experiment: build-analysis experiment
+# =============================================================================
+# FASE 1 — EXPERIMENTO + ANÁLISE
+# =============================================================================
 
-experiment-quick: up
-	@mkdir -p datasets results && chmod 777 datasets results
-	$(call run_scenario,BURST,1,burst-anomaly.js,burst,720)
-	@$(MAKE) detect
+## REPS repetições × 3 cenários (ordem aleatória, retomável) → datasets/ + results/k6/ → análise
+experiment:
+	@$(MAKE) -s ensure-cluster
+	$(call check_analysis_image)
+	@bin/experiment.sh phase1
+	@$(MAKE) -s analyze
+
+## 1 repetição do burst (~14 min) para testar o pipeline
+experiment-quick:
+	@$(MAKE) -s experiment REPS=1 SCENARIOS=burst
+
+client-experiment: experiment
+
+## 5 detectores sobre datasets/ → results/detection_results.csv
+detect:
+	$(call check_datasets)
+	$(call check_analysis_image)
+	$(call prep_dirs)
+	@$(ANALYSIS_RUN) detectors.py --input /datasets/ --output /results/ --impute $(IMPUTE)
+
+k6-summary:
+	$(call check_analysis_image)
+	$(call prep_dirs)
+	@ls results/k6/*_run*.json >/dev/null 2>&1 || { echo "✗ Nenhum summary em results/k6/ (rode make experiment)"; exit 1; }
+	@$(ANALYSIS_RUN) k6_summary.py --input /results/k6 --output /results/k6_summary.csv
+
+## IC da média (TLC) + t de Student → results/stats/phase1/
+stats:
+	$(call check_analysis_image)
+	$(call prep_dirs)
+	@test -f results/detection_results.csv || $(MAKE) -s detect
+	@K6=""; [ -f results/k6_summary.csv ] && K6="--k6 /results/k6_summary.csv"; \
+		$(ANALYSIS_RUN) stats_tlc.py phase1 --detections /results/detection_results.csv $$K6 --out /results/stats/phase1
+
+analyze: detect
+	@-$(MAKE) -s k6-summary
+	@$(MAKE) -s stats
+
+# =============================================================================
+# FASE 3 — HPA REATIVO × PROATIVO
+# =============================================================================
+
+## HPA_MODES × cenários × REPS (ordem aleatória, retomável) → results/hpa/hpa_results.csv
+hpa-experiment:
+	@$(MAKE) -s ensure-cluster
+	$(call check_analysis_image)
+	@bin/experiment.sh phase3
+	@$(MAKE) -s hpa-analyze
+
+hpa-analyze:
+	$(call check_analysis_image)
+	$(call prep_dirs)
+	@test -f results/hpa/hpa_results.csv || { echo "✗ results/hpa/hpa_results.csv não existe (rode make hpa-experiment)"; exit 1; }
+	@-$(ANALYSIS_RUN) k6_summary.py --input /results/hpa/k6 --output /results/hpa/k6_summary.csv
+	@$(ANALYSIS_RUN) stats_tlc.py phase3 --hpa /results/hpa/hpa_results.csv --k6 /results/hpa/k6_summary.csv --out /results/stats/phase3
+
+# =============================================================================
+# VPS + VPN
+# =============================================================================
+
+## (notebook) Testa app, Prometheus, Grafana, API do K8s e detector pela VPN
+vpn-check:
+	@ok=1; \
+	chk() { if curl -fsS -m 5 -o /dev/null "$$2"; then echo "  ✓ $$1  $$2"; else echo "  ✗ $$1  $$2"; ok=0; fi; }; \
+	echo "→ Verificando $(CLUSTER_HOST) ..."; \
+	chk "App       " "$(APP_URL)/health"; \
+	chk "Prometheus" "$(PROM_URL)/-/ready"; \
+	chk "Grafana   " "$(GRAFANA_URL)/api/health"; \
+	if curl -fsS -m 5 -G "$(PROM_URL)/api/v1/query" --data-urlencode 'query=count(anomaly_score)' 2>/dev/null | grep -q '"value"'; then \
+		echo "  ✓ Detector online sendo coletado pelo Prometheus"; else echo "  ⚠ Detector online ainda não aparece no Prometheus"; fi; \
+	if command -v kubectl >/dev/null 2>&1 && kubectl get nodes >/dev/null 2>&1; then \
+		echo "  ✓ API do Kubernetes (kubectl) — $$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"; \
+	else echo "  ✗ kubectl não alcança o cluster (KUBECONFIG_FILE=$(KUBECONFIG_FILE)). Necessário para a Fase 3."; ok=0; fi; \
+	[ $$ok = 1 ] && echo "✓ VPS acessível" || { echo "✗ Verifique a VPN, o .env (CLUSTER_HOST/BIND_ADDR) e 'make status' na VPS"; exit 1; }
+
+## (VPS) Exporta kubeconfig para o notebook usar pela VPN → kubeconfig-vpn.yaml
+kubeconfig:
+	$(call check_not_client)
+	@k3d kubeconfig get $(CLUSTER_NAME) \
+		| sed -E "s#server: https://[^:]+:[0-9]+#server: https://$(CLUSTER_HOST):$(KUBE_API_PORT)#" > kubeconfig-vpn.yaml
+	@chmod 600 kubeconfig-vpn.yaml
+	@echo "✓ kubeconfig-vpn.yaml (server: https://$(CLUSTER_HOST):$(KUBE_API_PORT))"
+	@echo "  Copie para o notebook (ex.: scp) e defina KUBECONFIG_FILE=kubeconfig-vpn.yaml no .env de lá."
 
 # =============================================================================
 # UTIL
 # =============================================================================
 
+## Autoteste do código de análise (sem cluster): detectores, detector online, IC, métricas do HPA
+selftest:
+	$(call check_analysis_image)
+	@docker run --rm $(ANALYSIS_IMAGE) selftest.py
+
 status:
-	$(call check_cluster)
+	$(call check_kubectl)
 	@kubectl get pods -n $(NAMESPACE) -o wide
-	@echo ""; kubectl get hpa -n $(NAMESPACE)
+	@echo ""; kubectl get hpa -n $(NAMESPACE) -L hpa-mode
 	@echo ""; kubectl top pods -n $(NAMESPACE) 2>/dev/null || true
 
 logs:
-	$(call check_cluster)
+	$(call check_kubectl)
 	@kubectl logs -n $(NAMESPACE) -l app=fastapi -f --tail=50
 
+## Zera TUDO do lab nesta máquina (só do lab): cluster, imagens, dados gerados e arquivos gerados.
+## Não usa "docker system prune": outros containers/imagens da máquina (ex.: serviços da VPS) ficam intactos.
+## Preserva: código, .env, datasets_qualificacao/, results_qualificacao/.  Sem perguntar: make purge CONFIRM=yes
+purge:
+	@echo "Isto vai remover DESTA máquina:"
+	@echo "  • cluster k3d '$(CLUSTER_NAME)' (se existir)"
+	@echo "  • imagens: $(APP_IMAGE), $(ANALYSIS_IMAGE), $(K6_IMAGE), rancher/k3s, ghcr.io/k3d-io/*"
+	@echo "  • datasets/, datasets_hpa/, results/, .stamps/, k3d-config.yaml, kubeconfig-vpn.yaml"
+	@echo "Preserva: código, .env, datasets_qualificacao/, results_qualificacao/ e qualquer outro container/imagem."
+	@if [ "$(CONFIRM)" != "yes" ]; then \
+		read -r -p "Digite 'sim' para continuar: " ans; [ "$$ans" = "sim" ] || { echo "Cancelado."; exit 1; }; fi
+	@if [ "$(ROLE)" != "client" ] && command -v k3d >/dev/null 2>&1; then \
+		k3d cluster delete $(CLUSTER_NAME) >/dev/null 2>&1 && echo "✓ cluster removido" || echo "• sem cluster"; fi
+	@for img in $(APP_IMAGE) $(ANALYSIS_IMAGE) $(K6_IMAGE); do \
+		docker image rm -f "$$img" >/dev/null 2>&1 && echo "✓ imagem $$img" || true; done
+	@docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+		| grep -E '^(rancher/k3s|ghcr\.io/k3d-io/)' | xargs -r docker image rm -f >/dev/null 2>&1 \
+		&& echo "✓ imagens do k3d/k3s" || true
+	@rm -rf datasets datasets_hpa results $(STAMP_DIR) k3d-config.yaml kubeconfig-vpn.yaml
+	@mkdir -p datasets results && touch datasets/.gitkeep results/.gitkeep
+	@echo "✓ Lab zerado. Para começar de novo: make up"
+
+## Remove dados GERADOS (datasets/, datasets_hpa/, results/). Não toca nos dados da qualificação.
 clean:
-	@rm -rf results datasets $(STAMP_DIR)
-	@echo "✓ Limpo"
+	@rm -rf results datasets datasets_hpa $(STAMP_DIR)
+	@echo "✓ Limpo (datasets_qualificacao/ e results_qualificacao/ preservados)"
 
 help:
 	@echo ""
-	@echo "  Qualquer comando resolve suas dependências automaticamente."
-	@echo "  Ordem não importa. Tudo idempotente."
+	@echo "  ROLE=$(ROLE)  CLUSTER_HOST=$(CLUSTER_HOST)  REPS=$(REPS)  HPA_MODE=$(HPA_MODE)"
+	@echo "  Qualquer alvo resolve suas dependências. Ordem não importa."
 	@echo ""
-	@echo "    make up                Garante: setup + cluster + build + deploy"
-	@echo "    make experiment        Garante: up + 9 rodadas + detectores"
-	@echo "    make experiment-quick  Garante: up + 1 rodada burst + detectores"
-	@echo "    make test-burst        Garante: up + roda burst"
-	@echo "    make detect            Requer: datasets/ com CSVs"
-	@echo "    make down              Destrói cluster"
-	@echo "    make rebuild           Força rebuild das imagens"
-	@echo "    make status            Mostra pods e HPA"
+	@echo "  Cluster (local/server)"
+	@echo "    make up                 cluster + imagens + app + Prometheus + Grafana + detector online + adapter + HPA"
+	@echo "    make deploy             reaplica só os manifests"
+	@echo "    make status | logs      pods, HPA (com modo) e consumo"
+	@echo "    make down               destrói o cluster"
 	@echo ""
-	@echo "  VPS + Notebook:"
-	@echo "    VPS:  make server-up"
-	@echo "    NB:   make client-experiment CLUSTER_HOST=<ip>"
+	@echo "  Fase 1 (comparação dos 5 detectores)"
+	@echo "    make experiment         REPS × 3 cenários, ordem aleatória, retomável + análise"
+	@echo "    make experiment-quick   1 rodada burst (~14 min)"
+	@echo "    make detect | stats     detectores sobre datasets/ | IC + t de Student"
+	@echo ""
+	@echo "  Fase 2 (detector online)"
+	@echo "    make online-replay CSV=datasets_qualificacao/burst_run1.csv   testa sem cluster"
+	@echo "    make detector-deploy | detector-logs"
+	@echo "    make hpa-mode HPA_MODE=B | hpa-status | phase2-check"
+	@echo ""
+	@echo "  Fase 3 (HPA A × B × C)"
+	@echo "    make hpa-experiment     HPA_MODES × 3 cenários × REPS + análise"
+	@echo ""
+	@echo "  make selftest            autoteste do código (sem cluster)"
+	@echo "  make clean | purge       apaga dados gerados | zera o lab inteiro (cluster+imagens+dados)"
+	@echo ""
+	@echo "  VPS + notebook (VPN)"
+	@echo "    VPS:      ROLE=server → make server-up && make kubeconfig"
+	@echo "    Notebook: ROLE=client → make vpn-check && make experiment && make hpa-experiment"
+	@echo ""

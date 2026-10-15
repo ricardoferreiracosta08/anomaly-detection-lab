@@ -1,0 +1,40 @@
+# =============================================================================
+# HPA reativo (só CPU) — TEMPLATE (bin/render.sh)
+#   Modo A: HPA_CPU_TARGET=50  (baseline, igual ao da qualificação)
+#   Modo C: HPA_CPU_TARGET=35  (controle de custo: "só ligar pods mais cedo")
+# behavior idêntico em todos os modos → a comparação isola o efeito da métrica.
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastapi-hpa
+  namespace: anomaly-lab
+  labels:
+    hpa-mode: "${HPA_MODE}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastapi-app
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: ${HPA_CPU_TARGET}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60

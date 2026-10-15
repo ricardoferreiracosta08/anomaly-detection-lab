@@ -22,7 +22,15 @@ if [ ! -f .env ]; then
     exit 1
 fi
 set -a; source .env; set +a
-ok ".env carregado (CLUSTER_HOST=$CLUSTER_HOST, APP_PORT=$APP_PORT)"
+ROLE="${ROLE:-local}"
+BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
+KUBE_API_PORT="${KUBE_API_PORT:-6550}"
+ok ".env carregado (ROLE=$ROLE, CLUSTER_HOST=$CLUSTER_HOST, BIND_ADDR=$BIND_ADDR)"
+case "$ROLE" in local|server|client) ;; *) fail "ROLE inválido: $ROLE (use local|server|client)"; exit 1 ;; esac
+if [ "$ROLE" = "server" ] && [ "$BIND_ADDR" = "0.0.0.0" ]; then
+    warn "BIND_ADDR=0.0.0.0 na VPS expõe app, Prometheus, Grafana e API do K8s na internet."
+    warn "Use o IP da VPS na VPN (ex.: 10.0.0.1)."
+fi
 
 # ── 0. Kubeconfig ──────────────────────────────────────────────────────────
 echo "→ Garantindo diretório kubeconfig..."
@@ -30,7 +38,7 @@ mkdir -p "$HOME/.kube"
 if [ ! -w "$HOME/.kube" ]; then
     sudo chown -R "$USER" "$HOME/.kube"
 fi
-ok "~/.kube pronto (owner=$USER)"
+ok "$HOME/.kube pronto (owner=$USER)"
 
 # ── 1. Docker ──────────────────────────────────────────────────────────────
 echo ""
@@ -76,6 +84,16 @@ else
 fi
 
 # ── 4. Gerar k3d-config.yaml a partir do .env ─────────────────────────────
+if [ "$ROLE" = "client" ]; then
+    echo ""
+    ok "ROLE=client: nenhum cluster local; o cluster roda na VPS ($CLUSTER_HOST)"
+    [ -n "${KUBECONFIG_FILE:-}" ] && [ -f "$KUBECONFIG_FILE" ] \
+        && ok "kubeconfig da VPS: $KUBECONFIG_FILE" \
+        || warn "KUBECONFIG_FILE não encontrado. Na VPS rode 'make kubeconfig' e copie o arquivo para cá."
+    echo ""
+    echo "  Próximo passo: make vpn-check"
+    exit 0
+fi
 echo ""
 echo "→ Gerando k3d-config.yaml com portas do .env..."
 echo "  APP_PORT=$APP_PORT  PROM_PORT=$PROM_PORT  GRAFANA_PORT=$GRAFANA_PORT"
@@ -93,13 +111,20 @@ agents: 2
 
 image: rancher/k3s:v1.30.4-k3s1
 
-# Mapeia portas do HOST (.env) → NodePorts fixos dentro do K3D
+# API do Kubernetes: publicada só em BIND_ADDR; certificado válido para CLUSTER_HOST
+# (permite kubectl do notebook pela VPN com o kubeconfig exportado por 'make kubeconfig')
+kubeAPI:
+  host: "${CLUSTER_HOST}"
+  hostIP: "${BIND_ADDR}"
+  hostPort: "${KUBE_API_PORT}"
+
+# Mapeia portas do HOST (.env) → NodePorts fixos dentro do K3D, só em BIND_ADDR
 ports:
-  - port: "${APP_PORT}:30080"
+  - port: "${BIND_ADDR}:${APP_PORT}:30080"
     nodeFilters: [servers:0]
-  - port: "${PROM_PORT}:30090"
+  - port: "${BIND_ADDR}:${PROM_PORT}:30090"
     nodeFilters: [servers:0]
-  - port: "${GRAFANA_PORT}:30030"
+  - port: "${BIND_ADDR}:${GRAFANA_PORT}:30030"
     nodeFilters: [servers:0]
 
 options:
@@ -112,6 +137,8 @@ options:
         nodeFilters: [servers:*]
       - arg: "--service-node-port-range=30000-32767"
         nodeFilters: [servers:*]
+      - arg: "--tls-san=${CLUSTER_HOST}"
+        nodeFilters: [servers:*]
   kubeconfig:
     updateDefaultKubeconfig: true
     switchCurrentContext: true
@@ -123,7 +150,7 @@ ok "k3d-config.yaml gerado"
 echo ""
 echo "→ Verificando NodePorts nos manifests K8s..."
 ok "NodePorts fixos: App=30080, Prometheus=30090, Grafana=30030"
-ok "Portas externas (do .env): App=$APP_PORT, Prom=$PROM_PORT, Grafana=$GRAFANA_PORT"
+ok "Portas externas (do .env, em $BIND_ADDR): App=$APP_PORT, Prom=$PROM_PORT, Grafana=$GRAFANA_PORT, API=$KUBE_API_PORT"
 
 # ── Resumo ─────────────────────────────────────────────────────────────────
 echo ""

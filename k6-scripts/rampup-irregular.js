@@ -164,8 +164,7 @@ export function handleSummary(data) {
     http_req_duration_avg: data.metrics.http_req_duration?.values?.avg || 0,
   };
 
-  return {
-    "results/rampup-summary.json": JSON.stringify(summary, null, 2),
+  const out = {
     stdout: `\n=== RAMP-UP IRREGULAR SUMMARY ===\n` +
             `Total requests: ${summary.total_requests}\n` +
             `Error rate: ${(summary.error_rate * 100).toFixed(2)}%\n` +
@@ -173,4 +172,10 @@ export function handleSummary(data) {
             `Step latency p95: ${summary.step_p95.toFixed(0)}ms\n` +
             `Step latency p99: ${summary.step_p99.toFixed(0)}ms\n`,
   };
+  // Summary completo por execução (avg, med, p90, p95, p99...) para o IC do k6.
+  // SUMMARY_FILE é passado pelo bin/experiment.sh (ex.: /results/k6/burst_run1.json).
+  if (__ENV.SUMMARY_FILE) {
+    out[__ENV.SUMMARY_FILE] = JSON.stringify({ scenario_summary: summary, metrics: data.metrics }, null, 2);
+  }
+  return out;
 }

@@ -44,6 +44,13 @@ data:
             action: replace
             target_label: namespace
 
+      # kube-state-metrics: réplicas do Deployment e do HPA (Fase 3)
+      # honor_labels mantém o label namespace/deployment do objeto medido
+      - job_name: 'kube-state-metrics'
+        honor_labels: true
+        static_configs:
+          - targets: ['kube-state-metrics.anomaly-lab.svc:8080']
+
       # cAdvisor metrics via kubelet (CPU, memory per container)
       - job_name: 'kubelet-cadvisor'
         scheme: https

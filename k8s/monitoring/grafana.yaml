@@ -42,7 +42,7 @@ spec:
         - containerPort: 3000
         env:
         - name: GF_SECURITY_ADMIN_PASSWORD
-          value: "anomalylab2026"
+          value: "${GRAFANA_ADMIN_PASSWORD}"     # do .env (renderizado por bin/render.sh)
         - name: GF_AUTH_ANONYMOUS_ENABLED
           value: "true"
         - name: GF_AUTH_ANONYMOUS_ORG_ROLE
@@ -194,8 +194,8 @@ data:
           },
           "targets": [
             {
-              "expr": "count(count by (pod) (container_memory_usage_bytes{namespace=\"anomaly-lab\", container=\"fastapi\"}))",
-              "legendFormat": "pods running",
+              "expr": "max(kube_deployment_status_replicas_available{namespace=\"anomaly-lab\", deployment=\"fastapi-app\"})",
+              "legendFormat": "réplicas disponíveis",
               "refId": "A"
             }
           ]
@@ -261,6 +261,322 @@ data:
       "timezone": "browser",
       "title": "Anomaly Detection Lab",
       "uid": "anomaly-lab-main"
+    }
+  online-detector.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "graphTooltip": 1,
+      "panels": [
+        {
+          "title": "Score do detector online (razão score/limiar; >1 = alerta)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10,
+                "thresholdsStyle": {
+                  "mode": "line+area"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max by (detector) (anomaly_score{namespace=\"anomaly-lab\"})",
+              "legendFormat": "{{detector}}",
+              "refId": "A"
+            }
+          ],
+          "description": "0 = ponto típico da janela de referência; 1 = exatamente no limiar dinâmico (μ+K·σ, |z−μ|>3σ no EWMA, distância>eps no DBSCAN)."
+        },
+        {
+          "title": "Alertas por detector",
+          "type": "state-timeline",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10,
+                "thresholdsStyle": {
+                  "mode": "line+area"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max by (detector) (anomaly_alert{namespace=\"anomaly-lab\"})",
+              "legendFormat": "{{detector}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "showValue": "never",
+            "mergeValues": true,
+            "rowHeight": 0.8
+          }
+        },
+        {
+          "title": "anomaly_level (métrica do HPA) × réplicas",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max by (detector) (anomaly_level{namespace=\"anomaly-lab\"})",
+              "legendFormat": "level {{detector}}",
+              "refId": "A"
+            },
+            {
+              "expr": "max(kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"anomaly-lab\", horizontalpodautoscaler=\"fastapi-hpa\"})",
+              "legendFormat": "réplicas desejadas (HPA)",
+              "refId": "B"
+            },
+            {
+              "expr": "max(kube_deployment_status_replicas_available{namespace=\"anomaly-lab\", deployment=\"fastapi-app\"})",
+              "legendFormat": "réplicas disponíveis",
+              "refId": "C"
+            }
+          ],
+          "description": "O HPA proativo (modos B/D) usa anomaly_level do detector escolhido; desejadas = ceil(atuais × level / ANOMALY_TARGET)."
+        },
+        {
+          "title": "Latência p95 e requisições/s (contexto)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"anomaly-lab\"}[30s])) by (le))",
+              "legendFormat": "p95 (s)",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"anomaly-lab\"}[30s])) / 100",
+              "legendFormat": "req/s ÷ 100",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "title": "Entradas do detector (as 4 features)",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 18
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "detector_input{namespace=\"anomaly-lab\"}",
+              "legendFormat": "{{feature}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "list"
+            }
+          }
+        },
+        {
+          "title": "Saúde do detector",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 18
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "time() - max(detector_last_success_timestamp{namespace=\"anomaly-lab\"})",
+              "legendFormat": "segundos desde a última coleta",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(detector_step_seconds_bucket{namespace=\"anomaly-lab\"}[1m])) by (le))",
+              "legendFormat": "p95 do tempo de passo (s)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "title": "Modo do HPA (label hpa-mode) e CPU-alvo",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 26
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": ""
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "kube_horizontalpodautoscaler_spec_target_metric{namespace=\"anomaly-lab\", horizontalpodautoscaler=\"fastapi-hpa\"}",
+              "legendFormat": "{{metric_name}} {{metric_target_type}}",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 39,
+      "tags": [
+        "anomaly-lab",
+        "online-detector",
+        "hpa"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Detector Online & HPA",
+      "uid": "anomaly-lab-online"
     }
 ---
 apiVersion: v1

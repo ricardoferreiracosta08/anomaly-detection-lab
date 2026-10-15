@@ -22,33 +22,15 @@ from datetime import datetime, timedelta
 
 import requests
 
+from prom_queries import queries, online_alert_query, NAMESPACE
+
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
-NAMESPACE = "anomaly-lab"
 STEP = "5s"  # Granularidade de 5 segundos (match com scrape_interval)
+ONLINE_DETECTORS = [d.strip() for d in os.environ.get(
+    "DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE").split(",") if d.strip()]
 
-# ── Queries Prometheus ──────────────────────────────────────────────────────
-
-QUERIES = {
-    "latency_p95": (
-        'histogram_quantile(0.95, '
-        'sum(rate(http_request_duration_seconds_bucket{namespace="anomaly-lab"}[30s])) by (le))'
-    ),
-    "cpu_percent": (
-        'sum(rate(container_cpu_usage_seconds_total'
-        '{namespace="anomaly-lab", container="fastapi"}[30s])) * 100'
-    ),
-    "memory_mb": (
-        'sum(container_memory_usage_bytes'
-        '{namespace="anomaly-lab", container="fastapi"}) / 1024 / 1024'
-    ),
-    "request_rate": (
-        'sum(rate(http_requests_total{namespace="anomaly-lab"}[30s]))'
-    ),
-    "error_rate": (
-        'sum(rate(http_requests_total{namespace="anomaly-lab", status=~"5.."}[30s]))'
-        ' / clamp_min(sum(rate(http_requests_total{namespace="anomaly-lab"}[30s])), 0.001)'
-    ),
-}
+# ── Queries Prometheus (fonte única em prom_queries.py) ─────────────────────
+QUERIES = queries(NAMESPACE)
 
 # ── Ground Truth: fases anômalas por cenário ────────────────────────────────
 # Cada cenário define em quais intervalos (segundos desde início) a carga é anômala.
@@ -150,6 +132,23 @@ def export(scenario: str, duration: int, output: str, start_time: float = None):
         print("ERRO: Nenhum dado coletado. Verifique se o Prometheus está rodando.")
         sys.exit(1)
 
+    # Alertas do detector online (se estiver rodando no cluster) → online_<DET>
+    online_cols = []
+    for det in ONLINE_DETECTORS:
+        try:
+            series = query_prometheus_range(online_alert_query(det), start_ts, end_ts, STEP)
+        except requests.RequestException:
+            series = []
+        if not series:
+            continue
+        col = f"online_{det}"
+        online_cols.append(col)
+        for ts, val in series:
+            if ts in all_data:
+                all_data[ts][col] = val
+    if online_cols:
+        print(f"  Alertas online incluídos: {', '.join(online_cols)}")
+
     # Ordenar por timestamp e anotar ground truth
     rows = sorted(all_data.values(), key=lambda x: x["timestamp"])
     for row in rows:
@@ -163,7 +162,7 @@ def export(scenario: str, duration: int, output: str, start_time: float = None):
         "datetime", "timestamp", "offset_seconds",
         "latency_p95", "cpu_percent", "memory_mb",
         "request_rate", "error_rate", "label"
-    ]
+    ] + online_cols
 
     with open(output, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")

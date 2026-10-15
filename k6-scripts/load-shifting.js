@@ -223,8 +223,7 @@ export function handleSummary(data) {
   const writePct = ((summary.write_requests / summary.total_requests) * 100).toFixed(1);
   const heavyPct = ((summary.heavy_requests / summary.total_requests) * 100).toFixed(1);
 
-  return {
-    "results/shifting-summary.json": JSON.stringify(summary, null, 2),
+  const out = {
     stdout: `\n=== LOAD SHIFTING SUMMARY ===\n` +
             `Total requests: ${summary.total_requests}\n` +
             `  Read:  ${summary.read_requests} (${readPct}%)\n` +
@@ -235,4 +234,10 @@ export function handleSummary(data) {
             `Latency p95: ${summary.latency_p95.toFixed(0)}ms\n` +
             `Latency p99: ${summary.latency_p99.toFixed(0)}ms\n`,
   };
+  // Summary completo por execução (avg, med, p90, p95, p99...) para o IC do k6.
+  // SUMMARY_FILE é passado pelo bin/experiment.sh (ex.: /results/k6/burst_run1.json).
+  if (__ENV.SUMMARY_FILE) {
+    out[__ENV.SUMMARY_FILE] = JSON.stringify({ scenario_summary: summary, metrics: data.metrics }, null, 2);
+  }
+  return out;
 }

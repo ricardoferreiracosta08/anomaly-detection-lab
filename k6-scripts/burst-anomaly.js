@@ -151,8 +151,7 @@ export function handleSummary(data) {
     http_req_duration_p95: data.metrics.http_req_duration?.values?.["p(95)"] || 0,
   };
 
-  return {
-    "results/burst-summary.json": JSON.stringify(summary, null, 2),
+  const out = {
     stdout: `\n=== BURST ANOMALY SUMMARY ===\n` +
             `Total requests: ${summary.total_requests}\n` +
             `Error rate: ${(summary.error_rate * 100).toFixed(2)}%\n` +
@@ -160,4 +159,10 @@ export function handleSummary(data) {
             `Burst p95: ${summary.burst_p95.toFixed(0)}ms\n` +
             `Latency ratio (burst/normal): ${(summary.burst_p95 / Math.max(summary.normal_p95, 1)).toFixed(1)}x\n`,
   };
+  // Summary completo por execução (avg, med, p90, p95, p99...) para o IC do k6.
+  // SUMMARY_FILE é passado pelo bin/experiment.sh (ex.: /results/k6/burst_run1.json).
+  if (__ENV.SUMMARY_FILE) {
+    out[__ENV.SUMMARY_FILE] = JSON.stringify({ scenario_summary: summary, metrics: data.metrics }, null, 2);
+  }
+  return out;
 }

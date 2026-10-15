@@ -1,0 +1,77 @@
+# =============================================================================
+# Detector online (Fase 2) — TEMPLATE renderizado por bin/render.sh a partir do .env
+#   ${ANALYSIS_IMAGE}  imagem anomaly-lab/analysis (mesma do notebook)
+#   ${DETECTOR_PORT}   porta do /metrics (sem porta fixa no código)
+# Configuração (janela, K, algoritmos) vem do ConfigMap online-detector-config,
+# criado pelo Makefile (make detector-config) a partir do .env.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: online-detector
+  namespace: anomaly-lab
+  labels:
+    app: online-detector
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # nunca dois detectores publicando ao mesmo tempo
+  selector:
+    matchLabels:
+      app: online-detector
+  template:
+    metadata:
+      labels:
+        app: online-detector
+      annotations:
+        prometheus.io/scrape: "true"            # descoberto pelo job kubernetes-pods
+        prometheus.io/port: "${DETECTOR_PORT}"
+        prometheus.io/path: "/metrics"
+        # muda só quando a configuração do .env muda → pod recriado só nesse caso
+        anomaly-lab/config-hash: "${DETECTOR_CONFIG_HASH}"
+    spec:
+      containers:
+      - name: detector
+        image: ${ANALYSIS_IMAGE}
+        imagePullPolicy: Never                  # imagem importada no k3d (make up)
+        args: ["online_detector.py"]
+        envFrom:
+        - configMapRef:
+            name: online-detector-config
+        ports:
+        - containerPort: ${DETECTOR_PORT}
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "192Mi"
+          limits:
+            cpu: "500m"
+            memory: "384Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: online-detector
+  namespace: anomaly-lab
+  labels:
+    app: online-detector
+spec:
+  selector:
+    app: online-detector
+  ports:
+  - name: metrics
+    port: ${DETECTOR_PORT}
+    targetPort: metrics

@@ -1,0 +1,57 @@
+# =============================================================================
+# HPA proativo (CPU + anomalia) — TEMPLATE (bin/render.sh)
+#   Modo B: HPA_DETECTOR=IF    (detector escolhido na Fase 1)
+#   Modo D: HPA_DETECTOR=EWMA  (ablação opcional: univariado × multivariado)
+#
+# O HPA calcula a réplica desejada para CADA métrica e usa a MAIOR:
+#   CPU      → igual ao modo A
+#   anomaly  → desejadas = ceil(atuais × anomaly_level / ANOMALY_TARGET)
+#              anomaly_level = fração de alertas nos últimos 3 pontos (0..1)
+#              com ANOMALY_TARGET=500m: nível 1 → dobra; nível ≤ 1/3 → não age
+# Logo o detector só ANTECIPA o scale-up; nunca impede o escalonamento por CPU.
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastapi-hpa
+  namespace: anomaly-lab
+  labels:
+    hpa-mode: "${HPA_MODE}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastapi-app
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: ${HPA_CPU_TARGET}
+  - type: External
+    external:
+      metric:
+        name: anomaly_level
+        selector:
+          matchLabels:
+            detector: "${HPA_DETECTOR}"
+            target: fastapi
+      target:
+        type: Value
+        value: "${ANOMALY_TARGET}"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60

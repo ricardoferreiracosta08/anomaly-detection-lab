@@ -1,0 +1,198 @@
+# =============================================================================
+# Prometheus Adapter — expõe anomaly_level como métrica EXTERNA ao HPA
+#   external.metrics.k8s.io/v1beta1  →  usado por k8s/hpa/hpa-anomaly.yaml
+# Manifests explícitos (sem Helm): nada a instalar no host, aplicação idempotente.
+# Só registra external.metrics; o metrics.k8s.io (CPU) continua no metrics-server.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-adapter
+  namespace: anomaly-lab
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-adapter-config
+  namespace: anomaly-lab
+data:
+  config.yaml: |
+    externalRules:
+    # anomaly_level{detector="IF", target="fastapi"} publicado pelo online-detector
+    - seriesQuery: 'anomaly_level{namespace!="",detector!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+      name:
+        as: "anomaly_level"
+      metricsQuery: 'max(<<.Series>>{<<.LabelMatchers>>})'
+---
+# Leitura da API (namespaces) para resolver o label namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-adapter-resource-reader
+rules:
+- apiGroups: [""]
+  resources: ["namespaces", "pods", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter-resource-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-adapter-resource-reader
+subjects:
+- kind: ServiceAccount
+  name: prometheus-adapter
+  namespace: anomaly-lab
+---
+# Delegação de autenticação/autorização (padrão de API server agregado)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter-system-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: prometheus-adapter
+  namespace: anomaly-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-adapter-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: prometheus-adapter
+  namespace: anomaly-lab
+---
+# O controlador do HPA precisa ler external.metrics.k8s.io
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-metrics-reader-anomaly-lab
+rules:
+- apiGroups: ["external.metrics.k8s.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hpa-controller-external-metrics-anomaly-lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-metrics-reader-anomaly-lab
+subjects:
+- kind: ServiceAccount
+  name: horizontal-pod-autoscaler
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-adapter
+  namespace: anomaly-lab
+  labels:
+    app: prometheus-adapter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-adapter
+  template:
+    metadata:
+      labels:
+        app: prometheus-adapter
+    spec:
+      serviceAccountName: prometheus-adapter
+      containers:
+      - name: prometheus-adapter
+        image: registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0
+        args:
+        - --cert-dir=/var/run/serving-cert
+        - --config=/etc/adapter/config.yaml
+        - --prometheus-url=http://prometheus.anomaly-lab.svc:9090/
+        - --metrics-relist-interval=30s
+        - --secure-port=6443
+        - --v=2
+        ports:
+        - containerPort: 6443
+          name: https
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        volumeMounts:
+        - name: config
+          mountPath: /etc/adapter
+          readOnly: true
+        - name: serving-cert
+          mountPath: /var/run/serving-cert
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-adapter-config
+      - name: serving-cert
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-adapter
+  namespace: anomaly-lab
+spec:
+  selector:
+    app: prometheus-adapter
+  ports:
+  - name: https
+    port: 443
+    targetPort: https
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+spec:
+  service:
+    name: prometheus-adapter
+    namespace: anomaly-lab
+  group: external.metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true      # certificado autoassinado gerado pelo adapter (lab)
+  groupPriorityMinimum: 100
+  versionPriority: 100
