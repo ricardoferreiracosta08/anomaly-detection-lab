@@ -1,0 +1,155 @@
+# HPA: modos, experimento e análise (Fases 2 e 3)
+
+## TL;DR
+
+- **Pergunta da Fase 3:** um HPA que também escuta o detector de anomalias (modo **B**) reage mais cedo e degrada menos a latência do que o HPA padrão por CPU (modo **A**)? E esse ganho vem **do detector** ou só de escalar mais (modo **C**)?
+- **Como:** os 3 modos × 3 cargas × `REPS` repetições, em ordem sorteada (`make hpa-experiment`). Cada execução gera uma linha de métricas; a estatística compara os modos par a par, por cenário.
+- **Métrica principal** (definida antes de rodar): **tempo de reação** (início da anomalia → HPA pede mais réplicas).
+- **Detector do modo B:** o melhor da Fase 1, fixado em `HPA_B_DETECTOR` **antes** da Fase 3 e não trocado depois.
+
+```bash
+make hpa-mode HPA_MODE=B && make phase2-check   # B recebe a métrica de anomalia?
+make hpa-experiment                              # Fase 3 completa (≈ 24 h com REPS=10)
+less results/stats/phase3/relatorio.md           # resultado
+```
+
+---
+
+## 1. Como o HPA decide
+
+O HPA olha suas métricas periodicamente (a cada 15 s) e calcula, **para cada métrica**, quantas réplicas seriam necessárias. Depois usa **a maior** delas, dentro dos limites `minReplicas=2` e `maxReplicas=8`.
+
+**Pela CPU** (todos os modos):
+
+```
+réplicas desejadas = ceil( réplicas atuais × CPU média / alvo )
+```
+
+A CPU é medida em relação ao `request` do pod (100m). Alvo 50% = 50m de uso médio por pod.
+
+**Pela anomalia** (modos B e D): o detector online publica `anomaly_level`, a fração de alertas nos últimos 3 pontos (0; 0,33; 0,67; 1). O Prometheus Adapter entrega esse valor ao HPA como métrica externa, com alvo `ANOMALY_TARGET=500m` (0,5):
+
+```
+réplicas desejadas = ceil( réplicas atuais × anomaly_level / 0,5 )
+```
+
+| `anomaly_level` | Com 2 réplicas | Efeito |
+|---|---|---|
+| 0 ou 0,33 (0 ou 1 alerta em 3) | 0 ou 2 | nada (CPU decide) |
+| 0,67 (2 alertas em 3) | 3 | +1 réplica |
+| 1 (3 alertas em 3) | 4 | dobra |
+
+Como o HPA usa a maior das duas, **o detector só antecipa o scale-up; nunca impede** o escalonamento por CPU. Se o detector errar para menos, o modo B se comporta como o A.
+
+**Comportamento** (igual em todos os modos, para a comparação ser justa):
+- **Subida:** espera 30 s de estabilização; no máximo +2 pods a cada 60 s.
+- **Descida:** espera 120 s; no máximo −1 pod a cada 60 s.
+
+## 2. Os modos
+
+| Modo | O HPA decide por | Manifesto | Papel no experimento |
+|---|---|---|---|
+| **A** | CPU > 50% | `k8s/hpa/hpa-cpu.yaml` | **referência**: o HPA padrão, reativo |
+| **B** | CPU > 50% **ou** anomalia (`HPA_B_DETECTOR`) | `k8s/hpa/hpa-anomaly.yaml` | **tratamento**: o HPA proativo, a proposta da dissertação |
+| **C** | CPU > 35% (`HPA_C_CPU_TARGET`) | `k8s/hpa/hpa-cpu.yaml` | **controle**: escalar mais cedo **sem** detector |
+| D (opcional) | CPU > 50% **ou** anomalia (`HPA_D_DETECTOR`) | `k8s/hpa/hpa-anomaly.yaml` | **ablação**: outro detector no lugar do de B |
+
+A troca é feita na hora, sem reiniciar nada: `make hpa-mode HPA_MODE=X`. O modo atual fica na etiqueta `hpa-mode` do HPA (`make hpa-status`).
+
+### Por que existe o modo C
+
+Suponha que o B vença o A: reage mais cedo e a latência sobe menos. A banca vai perguntar: **"foi o detector, ou o B simplesmente liga mais pods?"** Qualquer HPA que escale mais cedo vai reagir antes e gastar mais. Para separar as duas explicações, é preciso um concorrente que escale mais cedo **sem detector nenhum**. O jeito mais simples é baixar o alvo de CPU: é o modo C.
+
+Leitura dos resultados:
+
+| Resultado | Conclusão |
+|---|---|
+| B reage antes que A **e** antes que C | o detector antecipa algo que a CPU não vê: ganho real do detector |
+| B ≈ C no tempo de reação, mas B gasta menos pod·s ou tem menos scale-ups falsos | mesmo ganho por um custo menor: o detector escala na hora certa, não sempre |
+| C ≥ B em tudo | o ganho do B era só escalar mais; o detector não se paga |
+
+O valor 35% é um ponto de partida. O ideal é calibrar o C para gastar **mais ou menos o mesmo** pod·s que o B, e aí comparar só a qualidade da reação. Uma forma: rodar um piloto (`make hpa-experiment REPS=2`), olhar `pod_seconds` de B e C, ajustar `HPA_C_CPU_TARGET` e só então rodar a Fase 3 definitiva. Vale combinar isso com o orientador.
+
+### O modo D
+
+Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro detector, por padrão o EWMA (univariado, só latência) contra o do B (multivariado). Responde: "o tipo de detector importa para o HPA?". Comparação gerada: D × B.
+
+## 3. Escolha do detector do modo B (pré-registro)
+
+1. Rode a Fase 1 completa (`make experiment`).
+2. Escolha o detector pelo **F1 online** (colunas `<DET>_online` em `results/detection_results.csv` e `results/stats/phase1/relatorio.md`), olhando os 3 cenários. O critério deve estar escrito **antes** de olhar os resultados da Fase 3.
+3. Fixe no `.env`: `HPA_B_DETECTOR=<escolhido>`. O `make hpa-mode` recusa um detector fora de `DETECTOR_ALGOS`.
+4. Não troque depois de ver a Fase 3. Trocar o detector após ver o resultado invalida o teste estatístico (seria escolher o que deu certo).
+
+## 4. O que é medido em cada execução
+
+Cada execução (modo × cenário × repetição) gera **uma linha** em `results/hpa/hpa_results.csv` (`scripts/hpa_metrics.py`). As "janelas anômalas" são o ground truth do roteiro do k6 (as mesmas da Fase 1).
+
+| Coluna | O que é | Melhor |
+|---|---|---|
+| `reaction_time_s` | **principal.** Início de cada janela anômala → 1º aumento das réplicas **desejadas**; média nas janelas | menor |
+| `ready_time_s` | idem, até o 1º aumento das réplicas **disponíveis** (pod pronto) | menor |
+| `windows_no_reaction` / `n_windows` | janelas sem nenhum scale-up (não entram na média do tempo de reação) | menor |
+| `p95_anom_ms` | p95 da latência medida no servidor, só dentro das janelas anômalas | menor |
+| `slo_viol_anom_pct` | % de requisições acima de 500 ms (`SLO_SECONDS`) nas janelas anômalas | menor |
+| `slo_viol_all_pct` | idem, na execução inteira | menor |
+| `pod_seconds` | **custo:** soma de réplicas disponíveis × tempo | menor |
+| `scaleups` / `false_scaleups` | aumentos no total / fora das janelas anômalas (+60 s de tolerância) | menos falsos |
+| `k6_p95_ms`, `k6_error_rate` | p95 e erros vistos pelo k6 (lado cliente) | menor |
+
+## 5. Análise estatística
+
+`make hpa-analyze` (já chamado no fim do `make hpa-experiment`) gera `results/stats/phase3/`:
+
+- **IC da média por célula** (cenário × modo), para cada métrica: Ȳ ± t(0,975; N−1)·S/√N [AR, slides 49–52].
+- **Comparações, por cenário e métrica, com t de Student** (p-valor) e teste visual de sobreposição dos ICs [AR, slides 64 e 66]:
+
+| Par | Pergunta |
+|---|---|
+| B × A | o HPA proativo é melhor que o padrão? |
+| B × C | o ganho é do detector ou só de escalar mais cedo? |
+| C × A | escalar mais cedo, por si só, ajuda? |
+| D × B | o tipo de detector importa? (se houver D) |
+
+- **Figuras:** IC por modo para tempo de reação, p95 nas anomalias, % acima do SLO e custo.
+- **Saídas:** `relatorio.md` (leitura rápida), `estatistica.xlsx` (uma aba por análise), PNGs.
+
+Nota para discutir com o orientador: com 3 ou mais modos, o material recomenda ANOVA antes das comparações par a par [AR, slide 65]. O pipeline faz os testes t (não pareados) por cenário. Se ele pedir, a ANOVA entra como etapa anterior.
+
+## 6. Ver o HPA agindo (teste manual, sem estatística)
+
+```bash
+make hpa-mode HPA_MODE=B
+make phase2-check              # anomaly_level do detector chegando pelo Adapter
+make test-burst                # uma carga burst (≈ 12 min)
+```
+
+Enquanto roda:
+- **Grafana › "Detector Online & HPA"**: `anomaly_level` subindo, seguido das réplicas desejadas e disponíveis.
+- **Terminal:** `kubectl -n anomaly-lab get hpa fastapi-hpa -w` mostra as decisões ao vivo (coluna TARGETS com CPU e `anomaly_level`).
+
+Repita com `HPA_MODE=A` para ver a diferença. No fim, `make hpa-mode HPA_MODE=A` volta ao padrão.
+
+## 7. Variáveis do `.env`
+
+| Variável | Padrão | O que controla |
+|---|---|---|
+| `HPA_MODE` | `A` | modo aplicado no `make up` |
+| `HPA_MODES` | `A,B,C` | modos rodados pelo `make hpa-experiment` (acrescente `D` para a ablação) |
+| `HPA_B_DETECTOR` | `IF` | detector do modo B (troque pelo vencedor da Fase 1) |
+| `HPA_D_DETECTOR` | `EWMA` | detector do modo D |
+| `HPA_C_CPU_TARGET` | `35` | alvo de CPU do modo C (%) |
+| `ANOMALY_TARGET` | `500m` | alvo do `anomaly_level` (0,5 = age com 2 de 3 alertas) |
+| `DETECTOR_K_SIGMA` | `2` | sensibilidade do detector online (menor = mais alertas) |
+| `SLO_SECONDS` | `0.5` | limite de latência usado nas métricas de SLO |
+| `REPS` | `10` | repetições |
+
+## 8. Problemas comuns
+
+| Sintoma | Causa provável | Ação |
+|---|---|---|
+| `phase2-check` sem dados | Adapter iniciando ou detector sem amostras | esperar ≈ 1 min; `make detector-logs`; `kubectl -n anomaly-lab logs deploy/prometheus-adapter` |
+| HPA B mostra `<unknown>` na métrica externa | Adapter sem a métrica ou detector errado no seletor | `make phase2-check`; conferir `HPA_B_DETECTOR` em `DETECTOR_ALGOS` |
+| B nunca escala pela anomalia | `anomaly_level` não chega a 0,67 | Grafana; baixar `DETECTOR_K_SIGMA` ou `ANOMALY_TARGET` e `make detector-deploy` (antes da Fase 3, nunca durante) |
+| muitas janelas sem reação em todos os modos | a carga não força scale-up | conferir no Grafana se a CPU passa do alvo nos picos |
+| "réplicas não voltaram ao mínimo" | descida lenta (120 s + 1 pod/min) | normal com 8 réplicas; `BASELINE_TIMEOUT` controla a espera |

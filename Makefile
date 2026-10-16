@@ -211,6 +211,8 @@ import-images:
 
 ## ConfigMap do detector a partir do .env (só as chaves do detector)
 detector-config:
+	@for d in $$(echo "$(DETECTOR_ALGOS)" | tr ',' ' '); do case "$$d" in EWMA|IF|LOF|DBSCAN|AE) ;; \
+		*) echo "✗ DETECTOR_ALGOS: '$$d' inválido (aceitos: EWMA, IF, LOF, DBSCAN, AE)"; exit 1 ;; esac; done
 	$(call check_kubectl)
 	@kubectl -n $(NAMESPACE) create configmap online-detector-config \
 		--from-literal=PROMETHEUS_URL=$(PROMETHEUS_INCLUSTER_URL) \

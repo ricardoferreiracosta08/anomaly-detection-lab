@@ -1,5 +1,30 @@
 # Runbook: experimento na VPS (+ notebook pela VPN)
 
+## TL;DR
+
+**Na VPS** (topologia A, recomendada):
+
+```bash
+cp .env.example .env
+# .env: ROLE=server  CLUSTER_HOST=<IP_DA_VPN>  BIND_ADDR=<IP_DA_VPN>  CLUSTER_CPUS=0-5  LOADGEN_CPUS=6-7
+#       GRAFANA_ADMIN_PASSWORD=<troque>   HPA_B_DETECTOR=<fixe depois da Fase 1>
+./setup.sh && make server-up && make status
+tmux new -s exp
+make experiment                          # Fase 1 (≈ 8 h): 5 detectores × 3 cargas × 10
+#   → escolher o detector em results/stats/phase1/relatorio.md e fixar HPA_B_DETECTOR no .env
+make phase2-check && make hpa-experiment # Fase 3 (≈ 24 h): HPA A × B × C × 3 cargas × 10
+```
+
+**No notebook:** Grafana em `http://<IP_DA_VPN>:5090`. No fim: `scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results .`
+
+Caiu algo? Rode o mesmo comando de novo: execuções concluídas são puladas, as interrompidas são refeitas.
+
+Detalhes do HPA (modos, por que existe o C, métricas e estatística): [HPA.md](HPA.md).
+
+---
+
+## Topologias
+
 Há duas topologias. A **recomendada** roda tudo na VPS, inclusive o k6. O notebook só acompanha pelo Grafana, pela VPN.
 
 | | A. Tudo na VPS (recomendada) | B. k6 no notebook |
@@ -83,12 +108,16 @@ docker inspect -f '{{.Name}} {{.HostConfig.CpusetCpus}}' $(docker ps -q --filter
 
 Todos devem mostrar `0-5`. O HPA mede a CPU em relação ao `request` de cada pod, não ao total da máquina, então a fixação não muda o significado de "CPU 50%".
 
-**Fase 3** (cerca de 24 h com REPS=10):
+**Entre as fases:** escolha o detector do modo B pelo F1 online em `results/stats/phase1/relatorio.md` e fixe `HPA_B_DETECTOR` no `.env`. Não troque depois (ver [HPA.md](HPA.md), seção 3).
+
+**Fase 3** (cerca de 24 h com REPS=10): HPA A (CPU 50%), B (CPU + anomalia), C (CPU 35%, controle) × 3 cargas × `REPS`.
 
 ```bash
 make phase2-check          # anomaly_level precisa aparecer em external.metrics.k8s.io
 make hpa-experiment        # também dentro do tmux/nohup
 ```
+
+Resultado em `results/stats/phase3/relatorio.md`. O que cada modo e cada métrica significam está em [HPA.md](HPA.md).
 
 **No notebook** (acompanhar): abra `http://<IP_DA_VPN>:5090`, dashboards "Anomaly Detection Lab" e "Detector Online & HPA". No fim, traga os resultados com `scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results .`
 

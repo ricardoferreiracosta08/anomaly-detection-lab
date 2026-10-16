@@ -26,9 +26,20 @@
   - API do Kubernetes acessível pela VPN (`make kubeconfig`);
   - `make vpn-check`.
 - **`make selftest`:** testes do código de análise sem cluster.
-
 - **Idempotência do detector:** o `make detector-deploy` só recria o pod quando a configuração muda (hash na anotação do pod).
 - **Modos B e D configuráveis:** `HPA_B_DETECTOR` e `HPA_D_DETECTOR` aceitam qualquer um dos 5 detectores; o `make hpa-mode` recusa um detector que não esteja em `DETECTOR_ALGOS`.
+
+## Novo (15/out, depois dos primeiros testes na VPS)
+
+- **Topologia "tudo na VPS"** (recomendada com VPN instável): o k6 roda na própria VPS, em núcleos separados do cluster.
+  - `CLUSTER_CPUS` e `LOADGEN_CPUS` no `.env` (vazios = sem fixação);
+  - `make cpu-pin` fixa os nós do k3d com `docker update --cpuset-cpus`; o `make experiment` e o `make hpa-experiment` já chamam;
+  - o k6 e a análise rodam com `--cpuset-cpus LOADGEN_CPUS`.
+- **Execução inválida:** se o k6 não termina (sem resumo, por queda de conexão ou falta de memória), a execução não é marcada como concluída e é refeita na próxima chamada. Antes, entrava na estatística sem aviso.
+- **`make purge`** remove também os binários `k3d` e `kubectl` de `/usr/local/bin`.
+- **Documentação:**
+  - `docs/HPA.md` (novo): como o HPA decide, os modos A/B/C/D, por que existe o C, pré-registro do detector do B, métricas e estatística da Fase 3;
+  - `docs/RUNBOOK_VPS_VPN.md` reescrito: TL;DR no topo, topologias A e B, teste da VPN com `curl`, `tmux`/`nohup`, diagnóstico de "connection refused".
 
 ## Corrigido
 
@@ -41,6 +52,9 @@
 | 3 repetições fixas no Makefile | não escalava para 10 | `REPS` no `.env` |
 | `scripts/run_experiment.sh` exigia k6 e Python no host | violava "tudo em container" | removido; substituído por `bin/experiment.sh` |
 | Senha do Grafana fixa no manifest | — | vem do `.env` (`GRAFANA_ADMIN_PASSWORD`) |
+| `make kubeconfig` sem k3d ou sem cluster | mostrava "✓" e gerava `kubeconfig-vpn.yaml` **vazio** (o erro do k3d se perdia no pipe) | confere k3d e cluster antes; gera num arquivo temporário e só aceita se o `server:` estiver certo |
+| root do AlmaLinux sem `/usr/local/bin` no `PATH` | o instalador do k3d instalava, mas acusava falha; o `make` não achava o k3d | `setup.sh` acrescenta o caminho e avisa como deixar permanente |
+| `run_k6 … \|\| true` | execução com k6 interrompido era marcada como concluída | ver "Execução inválida" acima |
 
 ## Mantido de propósito
 
@@ -57,4 +71,4 @@ Este ambiente de desenvolvimento não tem acesso a registries de imagens. Por is
   - scripts: shellcheck;
   - Makefile: dry-run;
   - código Python: `selftest`, replay com os CSVs reais e Prometheus simulado para o `hpa_metrics.py`.
-- **O que não foi executado:** o cluster em si (pull das imagens, Adapter registrando a API, HPA lendo a métrica externa). O primeiro `make up` real é o teste disso. Siga `make status` e `make phase2-check`.
+- **O que não foi executado:** o cluster em si (pull das imagens, Adapter registrando a API, HPA lendo a métrica externa) e a fixação de núcleos (`make cpu-pin`) num cluster real. O primeiro `make up` real é o teste disso. Siga `make status`, `make phase2-check` e o `docker inspect` do runbook para conferir os núcleos.
