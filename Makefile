@@ -67,6 +67,16 @@ define prep_dirs
 	@mkdir -p datasets datasets_hpa results && chmod 777 datasets datasets_hpa results 2>/dev/null || true
 endef
 
+## Apaga datasets/, datasets_hpa/ e results/. Arquivos criados pelos containers (análise: uid 10001;
+## k6: uid 12345) podem não ser apagáveis pelo usuário do host: nesse caso o rm roda no container de
+## análise como root, só nessas 3 pastas. Recria os .gitkeep versionados.
+define rm_generated
+	@rm -rf results datasets datasets_hpa 2>/dev/null || \
+		docker run --rm --user 0 --entrypoint rm -v $(CURDIR):/lab $(ANALYSIS_IMAGE) -rf /lab/results /lab/datasets /lab/datasets_hpa
+	@[ ! -e results ] && [ ! -e datasets ] && [ ! -e datasets_hpa ] || { echo "✗ Não consegui apagar datasets/, datasets_hpa/ ou results/ (imagem $(ANALYSIS_IMAGE) ausente? rode make build-analysis)"; exit 1; }
+	@mkdir -p datasets results && touch datasets/.gitkeep results/.gitkeep
+endef
+
 define check_analysis_image
 	@docker image inspect $(ANALYSIS_IMAGE) >/dev/null 2>&1 || { echo "→ Imagem de análise ausente. Buildando..."; $(MAKE) -s build-analysis; }
 endef
@@ -458,6 +468,9 @@ purge:
 	@echo "Preserva: código, .env, datasets_qualificacao/, results_qualificacao/ e qualquer outro container/imagem."
 	@if [ "$(CONFIRM)" != "yes" ]; then \
 		read -r -p "Digite 'sim' para continuar: " ans; [ "$$ans" = "sim" ] || { echo "Cancelado."; exit 1; }; fi
+	$(call rm_generated)
+	@rm -rf $(STAMP_DIR) k3d-config.yaml kubeconfig-vpn.yaml
+	@echo "✓ dados gerados e arquivos de configuração gerados"
 	@if [ "$(ROLE)" != "client" ] && command -v k3d >/dev/null 2>&1; then \
 		k3d cluster delete $(CLUSTER_NAME) >/dev/null 2>&1 && echo "✓ cluster removido" || echo "• sem cluster"; fi
 	@for img in $(APP_IMAGE) $(ANALYSIS_IMAGE) $(K6_IMAGE); do \
@@ -465,8 +478,6 @@ purge:
 	@docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
 		| grep -E '^(rancher/k3s|ghcr\.io/k3d-io/)' | xargs -r docker image rm -f >/dev/null 2>&1 \
 		&& echo "✓ imagens do k3d/k3s" || true
-	@rm -rf datasets datasets_hpa results $(STAMP_DIR) k3d-config.yaml kubeconfig-vpn.yaml
-	@mkdir -p datasets results && touch datasets/.gitkeep results/.gitkeep
 	@for bin in /usr/local/bin/k3d /usr/local/bin/kubectl; do \
 		[ -e "$$bin" ] || continue; \
 		{ rm -f "$$bin" 2>/dev/null || sudo rm -f "$$bin"; } && echo "✓ binário $$bin"; done
@@ -474,7 +485,8 @@ purge:
 
 ## Remove dados GERADOS (datasets/, datasets_hpa/, results/). Não toca nos dados da qualificação.
 clean:
-	@rm -rf results datasets datasets_hpa $(STAMP_DIR)
+	$(call rm_generated)
+	@rm -rf $(STAMP_DIR)
 	@echo "✓ Limpo (datasets_qualificacao/ e results_qualificacao/ preservados)"
 
 help:

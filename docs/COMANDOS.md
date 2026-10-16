@@ -229,7 +229,7 @@ Gera `kubeconfig-vpn.yaml`, o arquivo que deixa o notebook controlar o cluster d
 ## Limpeza
 
 ### `make clean`
-Apaga os dados **gerados** (`datasets/`, `datasets_hpa/`, `results/`). Não apaga `datasets_qualificacao/` nem `results_qualificacao/`.
+Apaga os dados **gerados** (`datasets/`, `datasets_hpa/`, `results/`). Não apaga `datasets_qualificacao/` nem `results_qualificacao/`. Arquivos criados pelos containers (análise e k6) têm outro dono; se o seu usuário não conseguir apagá-los, o comando os apaga pelo container de análise, como root, só nessas três pastas. Sem `sudo`.
 
 ### `make purge`
 Zera **tudo do lab** nesta máquina e pede confirmação antes. Remove:
