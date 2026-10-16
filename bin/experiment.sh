@@ -263,6 +263,18 @@ one_run() {   # one_run <modo|-> <cenario> <rep>
 }
 
 [ -f results/experiment_log.csv ] || echo "phase,key,mode,scenario,rep,start,end" > results/experiment_log.csv
+PHASE_T0=$(date +%s)
+
+# ── custo da observação: ciclo e CPU do detector durante a fase inteira ───
+save_detector_cost() {
+    local t0 mins
+    # desde a 1ª execução desta fase (inclusive de chamadas anteriores, se foi retomada)
+    t0=$(awk -F, -v p="$PHASE" '$1 == p { print $6 }' results/experiment_log.csv | sort -n | head -1)
+    t0=${t0:-$PHASE_T0}
+    mins=$(( ($(date +%s) - t0) / 60 + 6 ))   # + aquecimento da 1ª execução
+    log "→ custo do detector na fase (últimos $mins min) → results/detector_ciclo_${PHASE}.txt"
+    make -s detector-ciclo MIN="$mins" 2>&1 | tee "results/detector_ciclo_${PHASE}.txt" || true
+}
 
 if [ "$PHASE" = "phase1" ]; then
     apply_mode A
@@ -272,6 +284,7 @@ if [ "$PHASE" = "phase1" ]; then
         echo "$rep,${order// /;}" >> "$plan"
         for sc in $order; do one_run - "$sc" "$rep"; done
     done
+    save_detector_cost
     log "✓ Fase 1 concluída: $(ls datasets/*.csv 2>/dev/null | wc -l) CSVs em datasets/"
 else
     combos=(); for m in $HPA_MODES; do for sc in $SCENARIOS; do combos+=("$m:$sc"); done; done
@@ -282,5 +295,6 @@ else
         for c in $order; do one_run "${c%%:*}" "${c##*:}" "$rep"; done
     done
     apply_mode A
+    save_detector_cost
     log "✓ Fase 3 concluída: results/hpa/hpa_results.csv"
 fi
