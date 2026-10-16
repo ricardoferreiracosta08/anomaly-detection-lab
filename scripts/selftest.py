@@ -84,6 +84,21 @@ class T(unittest.TestCase):
         self.assertAlmostEqual(r["t"], 2.262, places=3)
         self.assertAlmostEqual(r["H"], 36.05, places=1)
 
+    def test_pairwise_n1(self):
+        # degustação (make experiment-quick): 1 execução por detector → sem teste t,
+        # mas a tabela precisa ter a coluna "metrica" (o relatório filtra por ela)
+        import pandas as pd
+        from stats_tlc import pairwise
+        det = pd.DataFrame({"scenario": ["burst"] * 3, "detector": ["EWMA", "IF", "LOF"],
+                            "run": ["run1"] * 3, "f1": [0.5, 0.4, 0.3]})
+        T = pairwise(det, "scenario", "detector", "f1")
+        self.assertTrue(T.empty)
+        self.assertIn("metrica", T.columns)
+        self.assertTrue(T[T.metrica == "f1"].empty)
+        # com N = 2 por detector os pares voltam a aparecer
+        det2 = pd.concat([det, det.assign(run="run2", f1=det.f1 + 0.05)], ignore_index=True)
+        self.assertEqual(len(pairwise(det2, "scenario", "detector", "f1")), 3)
+
     def test_hpa_metrics(self):
         from hpa_metrics import reaction_metrics, pod_seconds
         start = 1000.0

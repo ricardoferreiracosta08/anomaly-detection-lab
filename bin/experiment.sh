@@ -72,7 +72,7 @@ shuffle() {   # shuffle <semente> itens...
 
 # ── condição inicial: HPA de volta ao mínimo de réplicas ──────────────────
 wait_baseline() {
-    local t0 now cur
+    local t0 now cur last=0
     t0=$(date +%s)
     while true; do
         cur=$(kubectl -n "$NS" get deploy fastapi-app -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "?")
@@ -80,6 +80,10 @@ wait_baseline() {
         min=$(kubectl -n "$NS" get hpa fastapi-hpa -o jsonpath='{.spec.minReplicas}' 2>/dev/null || echo 2)
         [[ "$cur" == "$min" && "$des" == "$min" ]] && break
         now=$(date +%s)
+        if (( now - last >= 60 )); then   # só informa o progresso; não muda a espera
+            log "… aguardando réplicas voltarem ao mínimo (atual=$cur desejado=$des mínimo=$min; $((now - t0))s de ${BASELINE_TIMEOUT}s)"
+            last=$now
+        fi
         if (( now - t0 > BASELINE_TIMEOUT )); then
             log "⚠ réplicas não voltaram ao mínimo em ${BASELINE_TIMEOUT}s (atual=$cur desejado=$des); seguindo"
             break

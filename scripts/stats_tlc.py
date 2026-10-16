@@ -134,7 +134,9 @@ def pairwise(df, scen_col, group_col, metric, pairs=None):
                 r = t_test(g[g[group_col] == a][metric], g[g[group_col] == b][metric])
                 if r:
                     rows.append({scen_col: s, "metrica": metric, "A": a, "B": b, **r})
-    return pd.DataFrame(rows)
+    # com N < 2 por grupo não há teste t: tabela vazia, mas com as colunas (o relatório filtra por elas)
+    return pd.DataFrame(rows, columns=[scen_col, "metrica", "A", "B", "media_A", "media_B", "dif", "t", "gl",
+                                       "t_tab", "p", "visual", "conclusao"])
 
 
 # =============================================================================
@@ -318,6 +320,8 @@ def phase1(det_path, k6_path, out):
            "| cenário | par | t | gl | p | visual | conclusão |", "|---|---|---|---|---|---|---|"]
     for r in f1t.itertuples():
         md.append(f"| {r.scenario} | {r.A} × {r.B} | {fmt(r.t,2)} | {r.gl} | {fmt(r.p,4)} | {r.visual.split(':')[0]} | {r.conclusao} |")
+    if f1t.empty:
+        md += ["", "Sem teste t: é preciso N ≥ 2 execuções por detector e cenário."]
     md += ["", "Com mais de 2 detectores por cenário, os testes par a par são exploratórios: o slide 65 indica ANOVA antes dos pares."]
     write_outputs(out, sheets, md)
 
@@ -352,6 +356,8 @@ def phase3(hpa_path, k6_path, out):
     md += ["## Comparações (t de Student, slide 66)", "", "| cenário | métrica | par | dif | t | p | conclusão |", "|---|---|---|---|---|---|---|"]
     for r in T_t.itertuples():
         md.append(f"| {r.scenario} | {r.metrica} | {r.A} × {r.B} | {fmt(r.dif,2)} | {fmt(r.t,2)} | {fmt(r.p,4)} | {r.conclusao} |")
+    if T_t.empty:
+        md += ["", "Sem teste t: é preciso N ≥ 2 execuções por modo e cenário."]
     md += ["", "Critério: B é melhor se reduz tempo de reação e violação de SLO em relação a A, com pod·s semelhante ao de C."]
     write_outputs(out, {"1_IC_hpa": T, "2_teste_t": T_t}, md)
 
