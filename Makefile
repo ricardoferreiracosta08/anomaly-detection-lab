@@ -417,6 +417,7 @@ purge:
 	@echo "  • cluster k3d '$(CLUSTER_NAME)' (se existir)"
 	@echo "  • imagens: $(APP_IMAGE), $(ANALYSIS_IMAGE), $(K6_IMAGE), rancher/k3s, ghcr.io/k3d-io/*"
 	@echo "  • datasets/, datasets_hpa/, results/, .stamps/, k3d-config.yaml, kubeconfig-vpn.yaml"
+	@echo "  • binários /usr/local/bin/k3d e /usr/local/bin/kubectl (instalados pelo setup.sh)"
 	@echo "Preserva: código, .env, datasets_qualificacao/, results_qualificacao/ e qualquer outro container/imagem."
 	@if [ "$(CONFIRM)" != "yes" ]; then \
 		read -r -p "Digite 'sim' para continuar: " ans; [ "$$ans" = "sim" ] || { echo "Cancelado."; exit 1; }; fi
@@ -429,7 +430,10 @@ purge:
 		&& echo "✓ imagens do k3d/k3s" || true
 	@rm -rf datasets datasets_hpa results $(STAMP_DIR) k3d-config.yaml kubeconfig-vpn.yaml
 	@mkdir -p datasets results && touch datasets/.gitkeep results/.gitkeep
-	@echo "✓ Lab zerado. Para começar de novo: make up"
+	@for bin in /usr/local/bin/k3d /usr/local/bin/kubectl; do \
+		[ -e "$$bin" ] || continue; \
+		{ rm -f "$$bin" 2>/dev/null || sudo rm -f "$$bin"; } && echo "✓ binário $$bin"; done
+	@echo "✓ Lab zerado. Para começar de novo: ./setup.sh && make up"
 
 ## Remove dados GERADOS (datasets/, datasets_hpa/, results/). Não toca nos dados da qualificação.
 clean:

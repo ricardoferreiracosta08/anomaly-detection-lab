@@ -199,7 +199,7 @@ Zera **tudo do lab** nesta máquina e pede confirmação antes. Remove:
 - os dados gerados;
 - os arquivos gerados (`k3d-config.yaml`, `kubeconfig-vpn.yaml`).
 
-Mantém o código, o `.env` e os dados da qualificação. **Não** usa `docker system prune`: outros containers e imagens da máquina (por exemplo, os serviços que já rodam na VPS) não são tocados. Para não perguntar: `make purge CONFIRM=yes`. Depois, `make up` reconstrói tudo do zero.
+Remove também os binários k3d e kubectl de /usr/local/bin. Mantém o código, o .env e os dados da qualificação **Não** usa `docker system prune`: outros containers e imagens da máquina (por exemplo, os serviços que já rodam na VPS) não são tocados. Para não perguntar: `make purge CONFIRM=yes`. Depois, `make up` reconstrói tudo do zero.
 
 | Comando | Cluster | Imagens | Dados gerados | Qualificação, .env, código |
 |---|---|---|---|---|
