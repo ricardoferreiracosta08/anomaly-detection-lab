@@ -47,8 +47,14 @@ echo "→ Verificando pré-requisitos..."
 if command -v docker &>/dev/null; then
     DOCKER_VER=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
     ok "Docker $DOCKER_VER instalado"
-    if ! docker info &>/dev/null; then
-        warn "Docker daemon não está rodando. Inicie com: sudo systemctl start docker"
+    if ! DOCKER_ERR=$(docker info 2>&1 >/dev/null); then
+        if echo "$DOCKER_ERR" | grep -qi 'permission denied'; then
+            fail "Usuário $USER sem permissão no Docker (só funciona com sudo)."
+            echo "    Rode: sudo usermod -aG docker $USER   e depois faça logout/login (ou: newgrp docker)"
+            echo "    Não rode o setup.sh nem o make com sudo: os arquivos ficariam com dono root."
+        else
+            warn "Docker daemon não está rodando. Inicie com: sudo systemctl start docker"
+        fi
         exit 1
     fi
 else

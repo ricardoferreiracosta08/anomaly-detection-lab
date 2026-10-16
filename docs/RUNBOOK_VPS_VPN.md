@@ -2,14 +2,58 @@
 
 ## TL;DR
 
-**Na VPS** (topologia A, recomendada):
+**Na VPS** (topologia A, recomendada). Faça na ordem; cada passo só depois do anterior dar certo.
+
+**1. Uma vez só: Docker sem `sudo`**
 
 ```bash
-cp .env.example .env
-# .env: ROLE=server  CLUSTER_HOST=<IP_DA_VPN>  BIND_ADDR=<IP_DA_VPN>  CLUSTER_CPUS=0-5  LOADGEN_CPUS=6-7
-#       GRAFANA_ADMIN_PASSWORD=<troque>   HPA_B_DETECTOR=<fixe depois da Fase 1>
+docker ps                                # funcionou sem sudo? pule para o passo 2
+sudo usermod -aG docker $USER            # põe seu usuário no grupo docker
+exit                                     # sai do SSH e entra de novo (o grupo só vale num login novo)
+docker ps                                # agora tem que funcionar sem sudo
+```
+
+Daqui em diante, **nunca** use `sudo` com `./setup.sh` ou `make`: os arquivos ficariam com dono root.
+
+**2. Configurar e subir o cluster**
+
+```bash
+cp .env.example .env                     # só na primeira vez
+# edite o .env: ROLE=server  CLUSTER_HOST=<IP_DA_VPN>  BIND_ADDR=<IP_DA_VPN>  CLUSTER_CPUS=0-5  LOADGEN_CPUS=6-7
+#               GRAFANA_ADMIN_PASSWORD=<troque>   HPA_B_DETECTOR=<fixe depois da Fase 1>
 ./setup.sh && make server-up && make status
-tmux new -s exp
+tmux new -A -s exp                       # cria a sessão ou volta a ela (caiu o SSH? rode de novo)
+```
+
+**3. Degustação: confere tudo em minutos, antes das rodadas longas**
+
+| Comando | Tempo | Testa |
+|---|---|---|
+| `make selftest` | ≈ 30 s | só o código de análise (detectores, IC, métricas do HPA). Não usa o cluster |
+| `make status` | segundos | pods `Running` e HPA com alvo |
+| `make test-burst` | ≈ 12 min | uma carga k6 contra o cluster. Acompanhe no Grafana; não gera estatística |
+| `make experiment-quick` | ≈ 15 min | Fase 1 de ponta a ponta: 1 burst → CSV → 5 detectores → relatório. Inclui o detector online **só detectando** (aparece como `EWMA_online`, `IF_online`…); o HPA fica no modo A, só CPU |
+| `make phase2-check` | segundos | o HPA recebe a métrica `anomaly_level` |
+| `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | ≈ 30 min | Fase 3 de ponta a ponta: burst no modo A e no B → `results/hpa/hpa_results.csv`. Único teste em que o HPA **escala pela anomalia** (modo B) |
+
+Resumo do que cada degustação exercita:
+
+| | Fase 1 (offline) | Detector online detecta | HPA escala pela anomalia |
+|---|---|---|---|
+| `make experiment-quick` | ✓ | ✓ | ✗ |
+| `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | — | ✓ | ✓ (modo B) |
+
+Com 1 execução não há IC nem teste t: a degustação só prova que o caminho funciona. Os números dela **não** valem para a dissertação.
+
+**Antes da rodada longa, apague a degustação** (senão o `make experiment` a conta como repetição 1 e a pula):
+
+```bash
+make clean                               # apaga datasets/, datasets_hpa/ e results/; preserva os dados da qualificação
+```
+
+**4. Rodadas longas (dentro do tmux)**
+
+```bash
 make experiment                          # Fase 1 (≈ 8 h): 5 detectores × 3 cargas × 10
 #   → escolher o detector em results/stats/phase1/relatorio.md e fixar HPA_B_DETECTOR no .env
 make phase2-check && make hpa-experiment # Fase 3 (≈ 24 h): HPA A × B × C × 3 cargas × 10
@@ -52,10 +96,12 @@ Qualquer VPN que dê um IP fixo à VPS serve (OpenVPN, WireGuard, Tailscale). No
 Antes de escolher a topologia, meça a VPN com TCP, que é o que o k6 usa (o `ping` pode enganar, porque muitas VPS limitam ICMP). Rode no notebook, com o cluster já de pé na VPS:
 
 ```bash
-for i in $(seq 100); do curl -o /dev/null -s -w '%{http_code} %{time_total}\n' --max-time 5 http://<IP_DA_VPN>:5070/health; done | sort | uniq -c | sort -rn | head
+r=$(for i in $(seq 100); do curl -o /dev/null -s -w '%{http_code} %{time_total}\n' --max-time 5 http://<IP_DA_VPN>:5070/health; done)
+echo "$r" | cut -d' ' -f1 | sort | uniq -c          # quantas respostas por código HTTP
+echo "$r" | awk '$1==200{print $2}' | sort -n | LC_ALL=C awk '{t[NR]=$1} END{if(NR) printf "tempo (s): min %.3f  mediana %.3f  p95 %.3f  max %.3f  (n=%d)\n",t[1],t[int((NR+1)/2)],t[int(NR*0.95)],t[NR],NR}'
 ```
 
-Muitas falhas (`000`) ou tempos muito variáveis: use a topologia A.
+Como ler: o ideal é `100 200`. Qualquer `000` (timeout) ou outro código é falha. Se o p95 passar de ~3× a mediana, a VPN oscila. Falhas ou oscilação: use a topologia A. Na topologia A a VPN só serve para ver o Grafana, então o resultado não afeta a medição.
 
 ## 1. VPS (as duas topologias)
 
@@ -96,8 +142,8 @@ O experimento precisa sobreviver à queda do SSH: sem isso, o `make experiment` 
 **Fase 1** (cerca de 8 h com REPS=10):
 
 ```bash
-tmux new -s exp            # ou: nohup make experiment > results/experiment.out 2>&1 &
-make experiment            # Ctrl+B, depois D: sai sem parar; tmux attach -t exp: volta
+tmux new -A -s exp         # cria ou volta à sessão. Ou: nohup make experiment > results/experiment.out 2>&1 &
+make experiment            # Ctrl+B, depois D: sai sem parar. Nunca exit/Ctrl+C aqui (mata o make)
 ```
 
 O `make experiment` chama o `make cpu-pin`, que fixa os nós do k3d nos núcleos `CLUSTER_CPUS`. O k6 e a análise rodam em `LOADGEN_CPUS`. Para conferir:

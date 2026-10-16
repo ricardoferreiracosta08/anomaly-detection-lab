@@ -39,6 +39,9 @@
 - **`make purge`** remove também os binários `k3d` e `kubectl` de `/usr/local/bin`.
 - **Documentação:**
   - `docs/HPA.md` (novo): como o HPA decide, os modos A/B/C/D, por que existe o C, pré-registro do detector do B, métricas e estatística da Fase 3;
+  - `docs/RUNBOOK_VPS_VPN.md`: TL;DR em passos (Docker sem `sudo`, cluster, **degustação** de Fase 1 e Fase 3 em minutos, `make clean` antes da rodada longa);
+  - `docs/RUNBOOK_VPS_VPN.md`: `tmux new -A -s exp` (o mesmo comando cria a sessão ou volta a ela depois de uma queda do SSH);
+  - `docs/COMANDOS.md`: seção "Administração pela CLI" com os comandos `kubectl`/`k3d` de consulta;
   - `docs/RUNBOOK_VPS_VPN.md` reescrito: TL;DR no topo, topologias A e B, teste da VPN com `curl`, `tmux`/`nohup`, diagnóstico de "connection refused".
 
 ## Corrigido
@@ -47,6 +50,9 @@
 |---|---|---|
 | `uvicorn --workers 2` com `prometheus_client` sem modo multiprocesso | cada scrape lia um worker diferente: contadores "voltavam", `rate()` via resets falsos | 1 worker por pod (`UVICORN_WORKERS=1`); escala horizontal fica com o HPA |
 | `make client-experiment` dependia de `make up` | no notebook, criava um cluster **local** em vez de usar a VPS | `ROLE=client` nunca cria cluster; `ensure-cluster` faz `vpn-check` |
+| Usuário fora do grupo `docker` (Docker só com `sudo`) | `setup.sh` e `make` diziam "daemon não está rodando", com o daemon de pé | a checagem distingue *permission denied* e orienta `usermod -aG docker` + novo login (nunca `sudo make`) |
+| Teste da VPN no runbook (`sort \| uniq -c \| head`) | agrupava código+tempo: cada linha aparecia 1×, o `head` mostrava só as 10 mais lentas e escondia as falhas `000` | conta os códigos HTTP à parte e imprime min/mediana/p95/max dos tempos |
+| `make test-*` seguido de outro `make test-*` | 2º teste falhava com "Operation not permitted": o `chmod -R 777 results` tentava mudar o resumo do k6 anterior, que pertence ao usuário do container (uid 12345); só o `make clean` destravava | `chmod` só nas pastas `results` e `results/k6`, sem `-R` e tolerante a erro (como o `prep_dirs`) |
 | Portas do k3d em `0.0.0.0` | na VPS, app, Prometheus e Grafana (anônimo) ficavam expostos na internet | `BIND_ADDR` no `.env` (IP da VPN) |
 | `handleSummary` gravava em `results/…` relativo, sem volume montado | summary por execução perdido; sem p95 por execução para o IC | `SUMMARY_FILE` por execução em `/results/k6/` |
 | 3 repetições fixas no Makefile | não escalava para 10 | `REPS` no `.env` |

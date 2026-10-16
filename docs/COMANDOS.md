@@ -90,7 +90,7 @@ O experimento completo:
 Se for interrompido, rode de novo: as execuções já feitas são puladas.
 
 ### `make experiment-quick`
-Uma única execução do burst, cerca de 14 min. Serve para testar se o pipeline inteiro funciona antes de deixar o experimento longo rodando.
+Uma única execução do burst, cerca de 14 min. Serve para testar se o pipeline inteiro funciona antes de deixar o experimento longo rodando. Inclui os alertas do detector online (avaliados como `EWMA_online`, `IF_online`…), mas o HPA fica no modo A: para ver o HPA escalar pela anomalia, use `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B`. Rode `make clean` antes do experimento longo, senão este burst conta como repetição 1.
 
 ### `make client-experiment`
 Mesmo que `make experiment`. É o nome antigo, mantido.
@@ -169,6 +169,30 @@ Para cada repetição, roda as 3 cargas em cada modo de `HPA_MODES` (padrão A, 
 
 ### `make hpa-analyze`
 Só recalcula a estatística da Fase 3 sobre os resultados existentes.
+
+---
+
+## Administração pela CLI (`kubectl` e `k3d`)
+
+Os `make status`, `make logs`, `make detector-logs` e `make hpa-status` já cobrem o dia a dia. Para ir além, use o `kubectl` direto. Tudo do lab fica no namespace `anomaly-lab` (`NAMESPACE` no `.env`).
+
+Rode como o mesmo usuário que fez o `make up`/`make server-up`: o kubeconfig fica no `~/.kube` dele. No notebook, pela VPN, vale o kubeconfig do `make kubeconfig`.
+
+| Comando | Para quê |
+|---|---|
+| `kubectl get nodes -o wide` | nós do k3d de pé? |
+| `kubectl -n anomaly-lab get all` | visão geral do lab |
+| `kubectl -n anomaly-lab get pods -w` | pods ao vivo (criação e remoção) |
+| `kubectl -n anomaly-lab get hpa fastapi-hpa -w` | decisões do HPA ao vivo (CPU e `anomaly_level`) |
+| `kubectl -n anomaly-lab describe hpa fastapi-hpa` | eventos do HPA: por que escalou ou não |
+| `kubectl -n anomaly-lab top pods` / `kubectl top nodes` | CPU e memória por pod / por nó |
+| `kubectl -n anomaly-lab describe pod <pod>` | pod em `Pending` ou `CrashLoopBackOff`: veja "Events" |
+| `kubectl -n anomaly-lab logs <pod> --previous` | log do container que caiu |
+| `kubectl -n anomaly-lab get events --sort-by=.lastTimestamp \| tail -20` | últimos eventos do namespace |
+| `kubectl get --raw "/apis/external.metrics.k8s.io/v1beta1/namespaces/anomaly-lab/anomaly_level"` | o valor de anomalia que o HPA enxerga (via Prometheus Adapter) |
+| `k3d cluster list` / `k3d node list` | o cluster e seus containers |
+
+Só leitura. Para mudar o estado (HPA, detector, cluster) use os alvos `make`: eles mantêm tudo idempotente e alinhado ao `.env`. Um `kubectl edit`/`scale` manual durante o experimento invalida a execução.
 
 ---
 

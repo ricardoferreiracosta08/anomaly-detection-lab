@@ -45,7 +45,10 @@ ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
 
 define check_docker
 	@command -v docker >/dev/null 2>&1 || { echo "✗ Docker não instalado. Rode: ./setup.sh"; exit 1; }
-	@docker info >/dev/null 2>&1 || { echo "✗ Docker daemon parado. Rode: sudo systemctl start docker"; exit 1; }
+	@err=$$(docker info 2>&1 >/dev/null) || { \
+		if echo "$$err" | grep -qi 'permission denied'; then \
+			echo "✗ Usuário $$USER sem permissão no Docker. Rode: sudo usermod -aG docker $$USER e faça logout/login (não use sudo make)"; \
+		else echo "✗ Docker daemon parado. Rode: sudo systemctl start docker"; fi; exit 1; }
 endef
 
 define check_kubectl
@@ -297,7 +300,7 @@ phase2-check:
 
 define k6_single
 	@$(MAKE) -s ensure-cluster
-	@mkdir -p results/k6 && chmod -R 777 results
+	@mkdir -p results/k6 && chmod 777 results results/k6 2>/dev/null || true
 	@echo "→ [K6] $(1) → $(APP_URL)"
 	@docker run --rm --network $(DOCKER_NET) \
 		-v $(CURDIR)/k6-scripts:/scripts:ro -v $(CURDIR)/results:/results \
