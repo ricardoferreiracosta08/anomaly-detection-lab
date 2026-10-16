@@ -126,8 +126,9 @@ scripts/                imagem de análise: detectors, online_detector, export_m
                         k6_summary, hpa_metrics, stats_tlc, selftest
 datasets_qualificacao/  9 CSVs reais da qualificação
 results_qualificacao/   resultados da qualificação (3 e 5 detectores, online, estatística)
-docs/                   runbook VPS+VPN, HPA (Fase 3), comandos, changelog, Git, READMEs anteriores
+docs/                   runbook VPS+VPN, HPA (Fase 3), detector online, Grafana, pilotos, comandos, changelog, Git, READMEs anteriores
 ```
 
 O que mudou em relação à versão anterior e por quê: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+Execuções de teste (pilotos) e as decisões que motivaram: [docs/PILOTOS.md](docs/PILOTOS.md). **Regra:** cada execução de teste relevante é registrada em `docs/PILOTOS.md`; os dados dos pilotos não entram nos resultados da dissertação.
 Como enviar para o GitHub: [docs/GIT.md](docs/GIT.md).
