@@ -34,7 +34,7 @@ make selftest            # ≈ 30 s, sem cluster.  Confira: "Ran 7 tests ... OK"
 make status              # segundos.            Confira: pods Running; HPA com TARGETS preenchido
 make experiment-quick    # ≈ 15 min. Fase 1 com 1 burst.  Confira: termina sem erro e gera results/stats/phase1/relatorio.md
 make online-replay CSV=datasets/burst_run1.csv   # poucos min. O mesmo burst no detector online, sem o atraso do cluster
-make phase2-check        # segundos.            Confira: aparece um valor de anomaly_level
+make hpa-mode HPA_MODE=B && make phase2-check   # segundos. Confira: um valor de anomaly_level E, na seção Metrics do HPA, a linha da métrica externa (só aparece no modo B)
 make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B   # ≈ 30 min. Fase 3: burst no modo A e no B
 #                                               Confira: results/hpa/hpa_results.csv com 2 linhas (A e B)
 ```
@@ -62,7 +62,8 @@ make clean                               # apaga datasets/, datasets_hpa/ e resu
 ```bash
 make experiment                          # Fase 1 (≈ 8 h): 5 detectores × 3 cargas × 10
 #   → escolher o detector em results/stats/phase1/relatorio.md e fixar HPA_B_DETECTOR no .env
-make phase2-check && make hpa-experiment # Fase 3 (≈ 24 h): HPA A × B × C × 3 cargas × 10
+make hpa-mode HPA_MODE=B && make phase2-check   # o B recebe a anomalia? (o hpa-experiment troca o modo sozinho a cada execução)
+make hpa-experiment                      # Fase 3 (≈ 24 h): HPA A × B × C × 3 cargas × 10
 ```
 
 **No notebook:** Grafana em `http://<IP_DA_VPN>:5090`. No fim: `scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results .`
@@ -165,7 +166,8 @@ Todos devem mostrar `0-5`. O HPA mede a CPU em relação ao `request` de cada po
 **Fase 3** (cerca de 24 h com REPS=10): HPA A (CPU 50%), B (CPU + anomalia), C (CPU 35%, controle) × 3 cargas × `REPS`.
 
 ```bash
-make phase2-check          # anomaly_level precisa aparecer em external.metrics.k8s.io
+make hpa-mode HPA_MODE=B   # a métrica de anomalia só entra no HPA no modo B
+make phase2-check          # anomaly_level precisa aparecer em external.metrics.k8s.io e na seção Metrics do HPA
 make hpa-experiment        # também dentro do tmux/nohup
 ```
 
@@ -205,7 +207,7 @@ make build-analysis        # imagem de análise local (k6 vem pronto do Docker H
 make vpn-check             # app, Prometheus, Grafana, detector e kubectl pela VPN
 make selftest
 make experiment            # Fase 1
-make phase2-check && make hpa-experiment     # Fase 3
+make hpa-mode HPA_MODE=B && make phase2-check && make hpa-experiment     # Fase 3
 ```
 
 Com `ROLE=client`, `make up` não cria cluster: só roda o `vpn-check`. Desligue a suspensão do notebook durante o experimento.

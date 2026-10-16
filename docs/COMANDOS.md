@@ -154,7 +154,7 @@ Troca o modo do HPA na hora, sem reiniciar nada:
 Mostra o HPA atual: modo, métricas, réplicas atuais e desejadas.
 
 ### `make phase2-check`
-Confere se o HPA está recebendo a métrica de anomalia. Mostra o valor de `anomaly_level` que chega pelo Adapter e a seção de métricas do HPA. Use depois de `make hpa-mode HPA_MODE=B`.
+Confere se o HPA está recebendo a métrica de anomalia. Mostra o valor de `anomaly_level` que chega pelo Adapter e a seção de métricas do HPA. Use depois de `make hpa-mode HPA_MODE=B`. Em outro modo, a 1ª parte (o valor pelo Adapter) aparece, mas a seção do HPA só mostra CPU: por isso o comando completo é `make hpa-mode HPA_MODE=B && make phase2-check`. Deixar o HPA no B não atrapalha o `make hpa-experiment`, que aplica o modo certo antes de cada execução.
 
 ---
 
