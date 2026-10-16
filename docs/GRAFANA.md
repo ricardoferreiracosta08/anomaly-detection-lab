@@ -16,16 +16,18 @@
 ### Score do detector online (razão score/limiar; >1 = alerta)
 
 - **Consulta:** `max by (detector) (anomaly_score)`
-- **O que é:** para cada detector, a nota do ponto atual dividida pelo limiar. **Acima de 1 = alerta.** Abaixo de 0 só significa "mais típico que a média da referência".
-- **Num burst:** as linhas cruzam 1 durante as janelas do pico (150–185 s, 305–345 s e 465–500 s após o início da execução).
-- **Cuidado (problema conhecido):** com o cluster ocioso, a referência fica quase constante, o σ vai a ~0 e a razão explode (já se viu o AE em ~100.000). A escala vertical fica dominada por esse valor e as outras linhas parecem zero. Para ler, use escala logarítmica ou limite o eixo (por exemplo, de −2 a 5) e trace uma linha em 1. Ver também a seção 4.
+- **O que é:** para cada detector, a nota do ponto atual dividida pelo limiar. **Acima de 1 = alerta.**
+- **Como está desenhado:**
+  - **eixo vertical em escala log** (base 10): 0,1, 1, 10, 100… ficam igualmente espaçados. Assim um valor enorme (com o cluster ocioso, o σ vai a ~0 e já se viu o AE em ~100.000) não achata as outras linhas;
+  - **linha tracejada em 1** = o limiar. Curva acima da linha = alerta; abaixo = normal;
+  - **valores ≤ 0 não aparecem**, porque não existem em escala log: a curva some nesses trechos. Score ≤ 0 só significa "tão ou mais típico que a média da referência", ou seja, nada de anômalo.
+- **Num burst:** as linhas cruzam a linha tracejada durante as janelas do pico (150–185 s, 305–345 s e 465–500 s após o início da execução).
 
 ### Alertas por detector
 
 - **Consulta:** `max by (detector) (anomaly_alert)`
-- **O que é:** uma faixa por detector ao longo do tempo: 0 = normal, 1 = alerta. É exatamente o que vira a coluna `online_<DET>` do CSV e é pontuado no F1.
-- **Num burst:** blocos de alerta alinhados com os picos. Alerta fora dos picos = falso alarme; pico sem alerta = anomalia perdida.
-- **Cuidado (problema conhecido):** sem mapeamento de valores, cada faixa sai na cor do detector e 0 e 1 ficam parecidos. Corrigir com *Value mappings*: 0 = cinza "normal", 1 = vermelho "alerta".
+- **O que é:** uma faixa por detector ao longo do tempo: **cinza = normal** (valor 0), **vermelho = alerta** (valor 1). É exatamente o que vira a coluna `online_<DET>` do CSV e é pontuado no F1.
+- **Num burst:** blocos vermelhos alinhados com os picos. Vermelho fora dos picos = falso alarme; pico sem vermelho = anomalia perdida.
 
 ### anomaly_level (métrica do HPA) × réplicas — o principal
 
@@ -137,12 +139,14 @@ Correções possíveis (decisão de método, **antes** das 10 repetições, com 
 
 Detalhes em [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md).
 
-### Painéis de visualização
+### Painéis de visualização (corrigidos)
 
-| Painel | Problema | Correção (`k8s/monitoring/grafana.yaml`, dashboard `online-detector.json`) |
-|---|---|---|
-| Score do detector online | escala dominada por valores enormes do AE | eixo logarítmico ou limites fixos; linha de limiar em 1 |
-| Alertas por detector | 0 e 1 com cores parecidas | *Value mappings*: 0 = cinza "normal", 1 = vermelho "alerta" |
+Os dois problemas de leitura do dashboard "Detector Online & HPA" foram corrigidos em `k8s/monitoring/grafana.yaml` (ver [CHANGELOG](CHANGELOG.md)):
+
+- **Score do detector online:** a escala era dominada por valores enormes do AE. Agora o eixo é logarítmico, com linha tracejada do limiar em 1.
+- **Alertas por detector:** 0 e 1 saíam com cores parecidas. Agora 0 = cinza "normal" e 1 = vermelho "alerta".
+
+Para aplicar num cluster já de pé: `make deploy` (o Grafana relê o dashboard em 1 a 2 min, sem reiniciar).
 
 ## 5. Painel vazio ("No data")
 
