@@ -316,8 +316,10 @@ adapter-deploy:
 ## Troca o modo do HPA: make hpa-mode HPA_MODE=A|B|C|D
 hpa-mode:
 	$(call check_kubectl)
-	@for d in $(HPA_B_DETECTOR) $(HPA_D_DETECTOR); do \
-		echo ",$(DETECTOR_ALGOS)," | grep -q ",$$d," || { echo "✗ Detector '$$d' do HPA não está em DETECTOR_ALGOS=$(DETECTOR_ALGOS)"; exit 1; }; done
+	@# só o detector do modo aplicado precisa estar rodando (permite DETECTOR_ALGOS só com o do B na Fase 3)
+	@d=""; case "$(HPA_MODE)" in B) d=$(HPA_B_DETECTOR) ;; D) d=$(HPA_D_DETECTOR) ;; esac; \
+		[ -z "$$d" ] || echo ",$(DETECTOR_ALGOS)," | grep -q ",$$d," \
+		|| { echo "✗ Detector '$$d' do modo $(HPA_MODE) não está em DETECTOR_ALGOS=$(DETECTOR_ALGOS)"; exit 1; }
 	@case "$(HPA_MODE)" in \
 		A) HPA_CPU_TARGET=50 HPA_DETECTOR=- $(RENDER) k8s/hpa/hpa-cpu.yaml ;; \
 		B) HPA_CPU_TARGET=50 HPA_DETECTOR=$(HPA_B_DETECTOR) $(RENDER) k8s/hpa/hpa-anomaly.yaml ;; \
