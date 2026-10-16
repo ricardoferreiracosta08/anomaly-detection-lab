@@ -21,16 +21,18 @@ make experiment-quick       # 1 rodada burst + 5 detectores + estatística (~14 
 
 Grafana em `http://localhost:5090`, com os dashboards **Anomaly Detection Lab** e **Detector Online & HPA**.
 
-## Experimento definitivo: VPS + notebook via VPN
+## Experimento definitivo: VPS (+ notebook pela VPN)
 
-O cluster roda na VPS; o k6 e a análise rodam no notebook, para a carga não disputar CPU com o cluster.
+Duas topologias; a escolha depende da estabilidade da VPN.
 
-| Máquina | `.env` | Comandos |
-|---|---|---|
-| VPS | `ROLE=server`, `CLUSTER_HOST=<IP VPN da VPS>`, `BIND_ADDR=<IP VPN da VPS>` | `make server-up` e depois `make kubeconfig` |
-| Notebook | `ROLE=client`, `CLUSTER_HOST=<IP VPN da VPS>`, `KUBECONFIG_FILE=kubeconfig-vpn.yaml` | `make vpn-check`, `make experiment`, `make hpa-experiment` |
+| Topologia | Onde roda o `make experiment` | `.env` da VPS | `.env` do notebook |
+|---|---|---|---|
+| **A. Tudo na VPS** (recomendada) | VPS, dentro de `tmux`/`nohup` | `ROLE=server`, `CLUSTER_HOST` e `BIND_ADDR` = IP VPN da VPS, `CLUSTER_CPUS=0-5`, `LOADGEN_CPUS=6-7` | nenhum: só o navegador no Grafana |
+| B. k6 no notebook | notebook | `ROLE=server`, `CLUSTER_HOST` e `BIND_ADDR` = IP VPN da VPS | `ROLE=client`, `CLUSTER_HOST` = IP VPN da VPS, `KUBECONFIG_FILE=kubeconfig-vpn.yaml` |
 
-O passo a passo completo, com WireGuard/Tailscale e solução de problemas, está em [docs/RUNBOOK_VPS_VPN.md](docs/RUNBOOK_VPS_VPN.md).
+Na A, o k6 e o cluster ficam em núcleos de CPU separados (`make cpu-pin`, chamado pelo próprio `make experiment`) e a VPN fica fora da medição. Na B, a separação é por máquina, mas a latência da VPN entra no p95 do k6. Nas duas, uma execução em que o k6 não termina é marcada como inválida e refeita.
+
+O passo a passo completo, com o teste da VPN e a solução de problemas, está em [docs/RUNBOOK_VPS_VPN.md](docs/RUNBOOK_VPS_VPN.md).
 
 ## As três fases
 
@@ -99,9 +101,11 @@ Cada `make` está explicado um a um em **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 | `make hpa-experiment` / `make hpa-analyze` | Fase 3 |
 | `make hpa-mode HPA_MODE=B` / `make phase2-check` | troca o modo / confere a métrica externa |
 | `make detector-logs` / `make online-replay` | logs do detector / teste sem cluster |
-| `make vpn-check` / `make kubeconfig` | notebook → VPS / exporta o acesso da VPS |
+| `make vpn-check` / `make kubeconfig` | notebook → VPS / exporta o acesso da VPS (topologia B) |
+| `make cpu-pin` | fixa o cluster em `CLUSTER_CPUS` (topologia A; o `make experiment` já chama) |
 | `make selftest` | autoteste do código |
 | `make clean` | apaga `datasets/`, `datasets_hpa/` e `results/` (preserva a qualificação) |
+| `make purge` | zera o lab: cluster, imagens do lab, dados gerados e os binários k3d/kubectl (pede confirmação) |
 
 ## Estrutura
 
@@ -122,7 +126,7 @@ scripts/                imagem de análise: detectors, online_detector, export_m
                         k6_summary, hpa_metrics, stats_tlc, selftest
 datasets_qualificacao/  9 CSVs reais da qualificação
 results_qualificacao/   resultados da qualificação (3 e 5 detectores, online, estatística)
-docs/                   runbook VPS+VPN, changelog, READMEs anteriores
+docs/                   runbook VPS+VPN, comandos, changelog, Git, READMEs anteriores
 ```
 
 O que mudou em relação à versão anterior e por quê: [docs/CHANGELOG.md](docs/CHANGELOG.md).
