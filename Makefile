@@ -199,7 +199,14 @@ build-analysis:
 	$(call check_docker)
 	@echo "→ Build Analysis (detectores, estatística, detector online)..."
 	@docker build -q -t $(ANALYSIS_IMAGE) ./scripts
-	@[ "$(ROLE)" = "client" ] || k3d image import $(ANALYSIS_IMAGE) -c $(CLUSTER_NAME) >/dev/null 2>&1 || true
+	@# com cluster de pé: importa no k3d (erro visível) e reinicia o detector, que só pega a imagem nova num pod novo
+	@if [ "$(ROLE)" != "client" ] && k3d cluster list $(CLUSTER_NAME) >/dev/null 2>&1; then \
+		k3d image import $(ANALYSIS_IMAGE) -c $(CLUSTER_NAME) >/dev/null 2>&1 \
+			|| { echo "✗ Falha ao importar $(ANALYSIS_IMAGE) no cluster. Veja o erro com: k3d image import $(ANALYSIS_IMAGE) -c $(CLUSTER_NAME)"; exit 1; }; \
+		echo "→ Imagem importada no cluster"; \
+		kubectl -n $(NAMESPACE) rollout restart deploy/online-detector >/dev/null 2>&1 \
+			&& echo "→ Detector online reiniciado com a imagem nova" || true; \
+	fi
 	@echo "✓ Analysis OK"
 
 rebuild: build build-analysis

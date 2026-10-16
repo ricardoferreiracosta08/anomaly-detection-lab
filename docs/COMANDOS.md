@@ -64,7 +64,7 @@ Destrói o cluster. Os dados em `datasets/` e `results/` continuam. Não roda co
 Reconstrói a imagem da aplicação FastAPI e a coloca no cluster.
 
 ### `make build-analysis`
-Reconstrói a imagem de análise, que contém os detectores, a estatística e o detector online, e a coloca no cluster.
+Reconstrói a imagem de análise, que contém os detectores, a estatística e o detector online, e a coloca no cluster. Com o cluster de pé, também **reinicia o pod do detector online**, porque ele só passa a usar a imagem nova num pod novo. Se a importação no cluster falhar, o comando para com erro (antes falhava em silêncio). Não rode durante um experimento.
 
 ### `make rebuild`
 As duas anteriores, mais o reinício dos pods para usarem as imagens novas. Use depois de mudar código em `app/` ou `scripts/`.
