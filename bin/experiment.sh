@@ -21,6 +21,7 @@
 #   - Fase 3: espera, cooldown e aquecimento sempre com o HPA no modo A; o modo
 #     da execução só é aplicado depois da conferência das réplicas, logo antes
 #     do roteiro → toda execução começa com o mínimo de réplicas, em qualquer modo
+#   - a app é reiniciada antes de cada execução (estado limpo: 100 itens por pod)
 #   - retomável/idempotente: execução já concluída é pulada (marcadores em
 #     results/.done/); apagar o marcador força refazer aquela execução
 #
@@ -121,9 +122,29 @@ level_b() {
     LC_ALL=C awk -v v="$raw" 'BEGIN { if (v ~ /m$/) { sub(/m$/, "", v); v = v / 1000 } printf "%.3f", v }'
 }
 
+# ── estado limpo: reinicia a app antes de cada execução ──────────────────
+# A app guarda os itens em memória, por pod, e cada POST do k6 acrescenta um; /report,
+# /search e o GET leve percorrem todos. Sem reiniciar, cada execução herdava o estado das
+# anteriores (piloto 3: 4.055 e 3.850 itens por pod, contra 100 da semente) → viés de ordem.
+restart_app() {
+    log "→ reiniciando a app (pods novos, 100 itens por pod)"
+    kubectl -n "$NS" rollout restart deploy/fastapi-app >/dev/null
+    kubectl -n "$NS" rollout status deploy/fastapi-app --timeout=300s >/dev/null \
+        || log "⚠ o rollout da app não terminou em 300 s; seguindo para a espera pelas réplicas"
+}
+
+# ── itens por pod da app (app_items_total), pelo Prometheus: "112;108" ────
+items_per_pod() {
+    analysis -c "
+import requests
+r = requests.get('$PROM_URL/api/v1/query', params={'query': 'app_items_total{namespace=\"$NS\"}'}, timeout=5).json()
+print(';'.join(str(int(float(x['value'][1]))) for x in sorted(r['data']['result'], key=lambda x: x['metric'].get('pod', ''))))
+" 2>/dev/null || echo "?"
+}
+
 # ── aquecimento: carga normal constante logo antes do roteiro (HPA no modo A) ─
 warmup() {   # warmup <cenario> <key>
-    local sc=$1 key=$2 vus=${WARMUP_VUS[$1]} ok lvl
+    local sc=$1 key=$2 vus=${WARMUP_VUS[$1]} ok lvl items
     if (( WARMUP_SECONDS <= 0 )); then
         log "→ aquecimento desligado (WARMUP_SECONDS=0)"; return
     fi
@@ -135,14 +156,19 @@ warmup() {   # warmup <cenario> <key>
     # só a conferência das réplicas entre o fim do aquecimento e o roteiro (sem sleep)
     read_replicas
     lvl=$(level_b)
+    items=$(items_per_pod)
     if [[ "$cur" == "$min" && "$des" == "$min" ]]; then
-        ok=1; log "✓ fim do aquecimento: réplicas no mínimo ($cur); anomaly_level ${HPA_B_DETECTOR:-IF} = $lvl"
+        ok=1; log "✓ fim do aquecimento: réplicas no mínimo ($cur); anomaly_level ${HPA_B_DETECTOR:-IF} = $lvl; itens por pod = $items"
     else
         ok=0; log "⚠ o HPA escalou durante o aquecimento (atual=$cur desejado=$des mínimo=$min): $key começa fora da condição inicial"
     fi
-    # anomaly_level do detector do B no fim do aquecimento: ≥ 0,5 aqui = o B escalaria assim que aplicado
-    [ -f results/warmup_log.csv ] || echo "phase,key,scenario,vus,seconds,end,available,desired,min,at_min,b_detector,anomaly_level_b" > results/warmup_log.csv
-    echo "$PHASE,$key,$sc,$vus,$WARMUP_SECONDS,$(date +%s),$cur,$des,$min,$ok,${HPA_B_DETECTOR:-IF},$lvl" >> results/warmup_log.csv
+    # anomaly_level do B ≥ 0,5 aqui = o B escalaria assim que aplicado; itens iguais = mesmo estado da app
+    local header="phase,key,scenario,vus,seconds,end,available,desired,min,at_min,b_detector,anomaly_level_b,items_per_pod"
+    if [ -f results/warmup_log.csv ] && [ "$(head -1 results/warmup_log.csv)" != "$header" ]; then
+        mv results/warmup_log.csv "results/warmup_log.antigo.$(date +%s).csv"   # formato anterior: guarda à parte
+    fi
+    [ -f results/warmup_log.csv ] || echo "$header" > results/warmup_log.csv
+    echo "$PHASE,$key,$sc,$vus,$WARMUP_SECONDS,$(date +%s),$cur,$des,$min,$ok,${HPA_B_DETECTOR:-IF},$lvl,$items" >> results/warmup_log.csv
 }
 
 apply_mode() {   # apply_mode A|B|C|D
@@ -180,6 +206,7 @@ one_run() {   # one_run <modo|-> <cenario> <rep>
     # condição inicial e aquecimento sempre no modo A (Fase 1 já está em A);
     # o modo da execução só entra depois da conferência das réplicas, logo antes do roteiro
     [ "$mode" != "-" ] && apply_mode A
+    if [ "${RESTART_APP:-1}" = "1" ]; then restart_app; else log "→ app NÃO reiniciada (RESTART_APP=0)"; fi
     wait_baseline
     warmup "$sc" "$key"
     if [ "$mode" != "-" ] && [ "$mode" != "A" ]; then apply_mode "$mode"; fi
