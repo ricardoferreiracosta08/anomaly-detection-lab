@@ -42,7 +42,7 @@ O passo a passo completo, com o teste da VPN e a solução de problemas, está e
 | 2. Detector online | 5 detectores em janela deslizante no cluster, publicando `anomaly_score`, `anomaly_alert` e `anomaly_level` | `make up` (já incluso) | Prometheus/Grafana; colunas `online_<DET>` nos CSVs |
 | 3. Avaliar o HPA | modos A, B e C × 3 cenários × `REPS` | `make hpa-experiment` | `results/hpa/hpa_results.csv`, `results/stats/phase3/` |
 
-**Modos do HPA** (`make hpa-mode HPA_MODE=X`). Como o HPA decide, por que existe o modo C, as métricas e a estatística da Fase 3: **[docs/HPA.md](docs/HPA.md)**.
+**Modos do HPA** (`make hpa-mode HPA_MODE=X`). Como o HPA decide, por que existe o modo C, as métricas e a estatística da Fase 3: **[docs/HPA.md](docs/HPA.md)**. Como o detector online funciona (Fase 2): **[docs/DETECTOR_ONLINE.md](docs/DETECTOR_ONLINE.md)**.
 
 | Modo | Métricas | Papel |
 |---|---|---|

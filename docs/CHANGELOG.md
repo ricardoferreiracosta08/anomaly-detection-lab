@@ -40,6 +40,8 @@
 - **Documentação:**
   - `docs/HPA.md` (novo): como o HPA decide, os modos A/B/C/D, por que existe o C, pré-registro do detector do B, métricas e estatística da Fase 3;
   - `bin/experiment.sh`: enquanto espera as réplicas voltarem ao mínimo antes de cada execução, mostra o progresso a cada minuto (antes ficava mudo vários minutos depois de "HPA modo A"); a espera em si não mudou;
+  - `README.md`: link para `docs/DETECTOR_ONLINE.md`, ao lado do `docs/HPA.md`;
+  - `docs/RUNBOOK_VPS_VPN.md`: degustação do TL;DR virou sequência com "o que conferir" em cada passo, `make online-replay` para separar atraso do cluster de qualidade do detector, e o lembrete de decidir com o orientador, antes da rodada longa, a tolerância de atraso na avaliação do online;
   - `docs/RUNBOOK_VPS_VPN.md`: TL;DR em passos (Docker sem `sudo`, cluster, **degustação** de Fase 1 e Fase 3 em minutos, `make clean` antes da rodada longa);
   - `docs/RUNBOOK_VPS_VPN.md`: `tmux new -A -s exp` (o mesmo comando cria a sessão ou volta a ela depois de uma queda do SSH);
   - `docs/COMANDOS.md`: seção "Administração pela CLI" com os comandos `kubectl`/`k3d` de consulta;

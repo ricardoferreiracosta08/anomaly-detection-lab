@@ -25,25 +25,31 @@ cp .env.example .env                     # só na primeira vez
 tmux new -A -s exp                       # cria a sessão ou volta a ela (caiu o SSH? rode de novo)
 ```
 
-**3. Degustação: confere tudo em minutos, antes das rodadas longas**
+**3. Degustação: confere tudo em ≈ 1 h, antes das rodadas longas**
 
-| Comando | Tempo | Testa |
-|---|---|---|
-| `make selftest` | ≈ 30 s | só o código de análise (detectores, IC, métricas do HPA). Não usa o cluster |
-| `make status` | segundos | pods `Running` e HPA com alvo |
-| `make test-burst` | ≈ 12 min | uma carga k6 contra o cluster. Acompanhe no Grafana; não gera estatística |
-| `make experiment-quick` | ≈ 15 min | Fase 1 de ponta a ponta: 1 burst → CSV → 5 detectores → relatório. Inclui o detector online **só detectando** (aparece como `EWMA_online`, `IF_online`…); o HPA fica no modo A, só CPU |
-| `make phase2-check` | segundos | o HPA recebe a métrica `anomaly_level` |
-| `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | ≈ 30 min | Fase 3 de ponta a ponta: burst no modo A e no B → `results/hpa/hpa_results.csv`. Único teste em que o HPA **escala pela anomalia** (modo B) |
+Rode na ordem, dentro do tmux. Cada linha diz o que conferir antes de seguir.
 
-Resumo do que cada degustação exercita:
+```bash
+make selftest            # ≈ 30 s, sem cluster.  Confira: "Ran 7 tests ... OK"
+make status              # segundos.            Confira: pods Running; HPA com TARGETS preenchido
+make experiment-quick    # ≈ 15 min. Fase 1 com 1 burst.  Confira: termina sem erro e gera results/stats/phase1/relatorio.md
+make online-replay CSV=datasets/burst_run1.csv   # poucos min. O mesmo burst no detector online, sem o atraso do cluster
+make phase2-check        # segundos.            Confira: aparece um valor de anomaly_level
+make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B   # ≈ 30 min. Fase 3: burst no modo A e no B
+#                                               Confira: results/hpa/hpa_results.csv com 2 linhas (A e B)
+```
 
 | | Fase 1 (offline) | Detector online detecta | HPA escala pela anomalia |
 |---|---|---|---|
-| `make experiment-quick` | ✓ | ✓ | ✗ |
-| `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | — | ✓ | ✓ (modo B) |
+| `make experiment-quick` | ✓ | ✓ (`EWMA_online`, `IF_online`…) | ✗ (modo A, só CPU) |
+| `make hpa-experiment REPS=1 …` | — | ✓ | ✓ (modo B) |
 
-Com 1 execução não há IC nem teste t: a degustação só prova que o caminho funciona. Os números dela **não** valem para a dissertação.
+Como ler a degustação:
+
+- **Só prova que o caminho funciona.** Com N = 1, o relatório mostra a média e "—" em DP, IC e Shapiro, e avisa que não há teste t. É o esperado. Os números **não** valem para a dissertação.
+- **Online abaixo do offline é esperado.** O offline vê a execução inteira (limite superior); o online só vê o passado e chega com atraso (consulta ao Prometheus + publicação + novo scrape). O online tende a trocar precisão por recall.
+- **O replay separa as causas.** Compare o F1 do `online-replay` com o `<DET>_online` do `experiment-quick`: se o replay ficar bem acima, a perda vem do atraso do cluster, não dos detectores. Referência da qualificação (replay, burst, média de 3): AE 0,61 · DBSCAN 0,60 · IF 0,46 · LOF 0,39 · EWMA 0,34.
+- **Decida antes da rodada longa, com o orientador:** se o online será avaliado com tolerância de atraso ou não. Não decida depois de ver os resultados finais, e não reajuste o K (`DETECTOR_K_SIGMA`) olhando a Fase 1 definitiva.
 
 **Antes da rodada longa, apague a degustação** (senão o `make experiment` a conta como repetição 1 e a pula):
 
