@@ -97,6 +97,22 @@ Cada execução (modo × cenário × repetição) gera **uma linha** em `results
 | `scaleups` / `false_scaleups` | aumentos no total / fora das janelas anômalas (+60 s de tolerância) | menos falsos |
 | `k6_p95_ms`, `k6_error_rate` | p95 e erros vistos pelo k6 (lado cliente) | menor |
 
+**Cuidado com o tempo de reação indefinido.** O `reaction_time_s` mede quando o HPA pede **mais** pods do que tinha no início do pico. Se o sistema já está escalado quando o pico chega (por exemplo, depois de scale-ups falsos), não há aumento: a janela conta como "sem reação" e fica fora da média. "Não reagiu porque já estava preparado" e "não reagiu porque falhou" ficam iguais. Leia sempre junto com `windows_no_reaction`, `false_scaleups` e `pod_seconds` (ver [PILOTOS.md](PILOTOS.md), piloto 2).
+
+### Por que a Fase 3 não calcula F1
+
+A Fase 3 mede o **HPA** (reação, latência, custo), não a qualidade dos detectores. O F1 que vale para comparar e escolher detectores é o da **Fase 1**, com o HPA no modo A.
+
+No modo **B**, o F1 nem seria comparável: o HPA reage ao detector, os pods extras baixam a latência e mudam os próprios dados que os detectores leem. É um circuito fechado: o detector influencia aquilo que está medindo.
+
+Mesmo assim, os CSVs da Fase 3 (`datasets_hpa/`) têm as colunas `online_*` e o gabarito. Para calcular o F1 como observação (válido nas execuções do modo A), use um diretório de saída separado, para não sobrescrever o da Fase 1:
+
+```bash
+mkdir -p results/hpa/detect && chmod 777 results/hpa/detect
+docker run --rm -v $PWD/datasets_hpa:/datasets_hpa -v $PWD/results:/results anomaly-lab/analysis:latest \
+  detectors.py --input /datasets_hpa/ --output /results/hpa/detect/ --impute zero
+```
+
 ## 5. Análise estatística
 
 `make hpa-analyze` (já chamado no fim do `make hpa-experiment`) gera `results/stats/phase3/`:

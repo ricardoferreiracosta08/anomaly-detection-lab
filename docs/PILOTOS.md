@@ -1,0 +1,105 @@
+# Pilotos: execuções de teste e o que motivaram
+
+Registro das execuções de **teste** (antes do experimento definitivo), com a configuração da época, os números e as decisões que geraram.
+
+> **Os dados dos pilotos não entram nos resultados da dissertação.** Servem para validar o pipeline e justificar decisões de método. Antes da Fase 1 definitiva, `datasets/`, `datasets_hpa/` e `results/` são limpos (ver o checklist em [RUNBOOK_VPS_VPN.md](RUNBOOK_VPS_VPN.md)).
+
+## TL;DR
+
+| Piloto | O que rodou | Achado principal | Decisão |
+|---|---|---|---|
+| 1 | `make experiment-quick` (Fase 1, burst, N = 1) | o online ao vivo perde ~0,2 de F1 para o replay, quase tudo em precisão | investigar atraso e falsos alarmes; tolerância de atraso em aberto |
+| 2 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | o B "ganhou" em latência porque escalou **antes** dos picos por alarmes falsos: +48% de custo, tempo de reação indefinido. Confirmado: 53–87% de alertas nos 150 s iniciais, sem anomalia | aquecimento + piso do σ; métrica "réplicas no início do pico" |
+
+---
+
+## Configuração comum aos pilotos
+
+| Parâmetro | Valor |
+|---|---|
+| Topologia | tudo na VPS (`ROLE=server`) |
+| Detector online | `DETECTOR_WINDOW=60` (5 min), `DETECTOR_GAP=6` (30 s), `DETECTOR_K_SIGMA=2`, `DETECTOR_LEVEL_POINTS=3` |
+| HPA | `ANOMALY_TARGET=500m`, `HPA_B_DETECTOR=IF` |
+| Entre execuções | `COOLDOWN=120`, **sem aquecimento**, **sem piso do σ** |
+| Núcleos (piloto 2) | cluster 0–5, k6 e análise 6–7 |
+
+## Piloto 1 — Fase 1 rápida (16/out/2026, ~00:30)
+
+**Comando:** `make experiment-quick` (1 execução do burst, `burst_run1`). A estatística quebrou com N = 1 (bug corrigido depois: `pairwise` com colunas fixas).
+
+**F1 do mesmo CSV, três formas** (offline e ao vivo vêm do `detection_results.csv`; o replay, de `make online-replay`):
+
+| Detector | Offline | Replay (online sem cluster) | Online ao vivo |
+|---|---|---|---|
+| EWMA | 0,485 | 0,424 | 0,222 |
+| IF | 0,500 | 0,625 | 0,448 |
+| LOF | 0,300 | 0,519 | 0,312 |
+| DBSCAN | 0,438 | 0,667 | 0,342 |
+| AE | 0,077 | 0,597 | 0,341 |
+
+Precisão / recall ao vivo: EWMA 0,25/0,20 · IF 0,36/0,60 · LOF 0,23/0,48 · DBSCAN 0,26/0,52 · AE 0,24/0,60.
+
+**Leitura:**
+- O procedimento online **sem** atraso (replay) supera o offline em 4 de 5 detectores. A janela deslizante evita o *masking* e o limiar se adapta (ver [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md), seção 4).
+- Ao vivo, o online perde ~0,2 de F1 para o replay, **quase tudo em precisão**. Duas causas candidatas:
+  - **atraso** do pipeline (alerta transborda para depois do fim da janela anômala);
+  - **falsos alarmes no começo da execução** (referência formada pelo cooldown sem carga).
+- N = 1: padrão, não conclusão.
+
+**Próximo passo registrado:** medir o atraso com o deslocamento dos alertas (script em [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md), seção 5).
+
+## Piloto 2 — HPA A × B (16/out/2026, 01:34–~02:20)
+
+**Comando:** `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B`.
+
+| Métrica | O que significa | A (só CPU) | B (CPU + IF) |
+|---|---|---|---|
+| `reaction_time_s` | início do pico → HPA pede mais pods | 43,3 s | **indefinido** (0 de 3 janelas) |
+| `ready_time_s` | início do pico → pod novo pronto | 50,0 s | indefinido |
+| `p95_anom_ms` | p95 da latência nos picos | 590 ms | 169 ms |
+| `slo_viol_anom_pct` | % req. > 500 ms nos picos | 3,26% | 0,15% |
+| `slo_viol_all_pct` | % req. > 500 ms na execução | 2,60% | 0,13% |
+| `pod_seconds` | custo (pods × s) | 3.615 | **5.350 (+48%)** |
+| `scaleups` / `false_scaleups` | pedidos de pods / fora dos picos | 3 / 0 | 3 / **2** |
+| `k6_p95_ms` | p95 visto pelo k6 | 520 ms | 184 ms |
+| `k6_error_rate` | erros no k6 | 0,5% | 0,1% |
+
+**Leitura:**
+1. No B, o IF alarmou **fora dos picos** (2 scale-ups falsos). Os pods subiram antes de qualquer anomalia e, como a descida é lenta (120 s + 1 pod/min), ficaram.
+2. Quando os picos chegaram, já havia pods sobrando: latência baixa, mas com **custo 48% maior**.
+3. O tempo de reação ficou **indefinido**, não "rápido": a métrica exige que o HPA peça **mais** pods do que tinha no início do pico, e o B já estava acima. As 3 janelas contaram como "sem reação" e saíram da média em silêncio.
+4. É o cenário que o **modo C** existe para separar: ganho por detectar × ganho por ter mais pods ([HPA.md](HPA.md), seção 2).
+
+**Evidência no Grafana** (dashboard "Detector Online & HPA", escala log):
+- scores do AE chegando a ~10⁵ (01:39, 01:52, 02:10) nas transições de "cluster parado" para "carga";
+- depois do fim das execuções (~02:28 em diante), com o cluster ocioso, o AE fica **em alerta contínuo** e os outros detectores ficam perto do limiar. A referência quase constante (σ ≈ 0) torna qualquer variação um alarme.
+
+**Verificação (feita): alertas antes da primeira anomalia.** Os primeiros 150 s do burst não têm anomalia (a primeira janela do gabarito começa aos 150 s), ou seja, 30 pontos de 5 s em que o `label` é sempre 0. Alertas `online_*` nesse trecho:
+
+| Execução | EWMA | IF | LOF | DBSCAN | AE |
+|---|---|---|---|---|---|
+| A_burst_run1 | 22/30 | 19/30 | 16/30 | 26/30 | 26/30 |
+| B_burst_run1 | 22/30 | 23/30 | 23/30 | 23/30 | 26/30 |
+
+**Confirmado:** os detectores passam de 53% a 87% do trecho inicial em alerta, sem nenhuma anomalia. São todos falsos positivos. Isso explica boa parte da baixa precisão ao vivo (piloto 1) e os scale-ups falsos do B: com o IF em alerta em 23 de 30 pontos, o `anomaly_level` chega a 0,67–1 logo no começo e o HPA escala.
+
+## Decisões motivadas pelos pilotos
+
+| Decisão | Motivo (piloto) | Estado |
+|---|---|---|
+| Aquecimento com a carga base do cenário antes de cada execução (`WARMUP_SECONDS`) | falsos alarmes com referência formada por silêncio (pilotos 1 e 2) | decidido; implementação em curso |
+| Piso relativo do σ (`DETECTOR_SIGMA_FLOOR`, opcional) | razões ~10⁵ com σ ≈ 0 (piloto 2, Grafana) | decidido como proteção; valor (0 ou 0,05) a fixar pelo replay da qualificação |
+| Métrica "réplicas no início de cada pico" no `hpa_metrics.py` | tempo de reação indefinido quando o sistema já está escalado (piloto 2) | proposta |
+| Calibrar o modo C para custo semelhante ao B | o ganho do B veio com +48% de custo (piloto 2) | proposta ([HPA.md](HPA.md), seção 2) |
+| Tolerância de atraso na avaliação do online | perda de precisão ao vivo × replay (piloto 1) | em aberto (orientador) |
+
+## Próximo piloto
+
+Depois do aquecimento e do piso: repetir `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`.
+
+O esperado, se as correções funcionarem:
+- `false_scaleups` do B perto de 0;
+- tempo de reação do B definido e menor que o do A;
+- custo do B próximo do A.
+
+Registrar aqui como Piloto 3.
