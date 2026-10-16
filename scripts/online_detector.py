@@ -24,6 +24,10 @@ se score > média + K·DP dos scores da própria janela de referência.
 Piso relativo do DP (DETECTOR_SIGMA_FLOOR): σ_ef = máx(σ, piso·|μ|). Com a referência
 quase constante (cluster ocioso, σ ≈ 0), sem piso qualquer variação mínima vira uma
 razão enorme (piloto 2: ~10⁵). Piso 0 = desligado.
+Piso relativo nas ENTRADAS (DETECTOR_FEATURE_FLOOR): cada feature é padronizada pela
+referência com σ_entrada = máx(σ, piso·|μ|). A memória fica quase constante (σ ≈ 0,005 MB);
+sem piso, um salto de 0,25 MB (coleta de lixo) virava ~50σ e os multivariados alarmavam
+(piloto 3, 140–145 s). Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta).
 EWMA: |z − μ| > L·σ (μ, σ da referência). DBSCAN: distância ao núcleo mais próximo > eps.
 LSTM (lstm_model.py): treinada na referência para prever o próximo ponto; nota = erro
 da previsão do ponto atual a partir dos LSTM_SEQ_LEN pontos anteriores a ele; decisão
@@ -69,6 +73,7 @@ CFG = dict(
     gap=env("DETECTOR_GAP", 6, int),               # 6 × 5 s = 30 s fora da referência
     k_sigma=env("DETECTOR_K_SIGMA", 2.0, float),   # limiar dinâmico μ + K·σ (K=2: proposta da reunião)
     sigma_floor=env("DETECTOR_SIGMA_FLOOR", 0.05, float),  # σ_ef = máx(σ, piso·|μ|); 0 = desligado
+    feature_floor=env("DETECTOR_FEATURE_FLOOR", 0.01, float),  # σ_entrada = máx(σ, piso·|μ|); 0 = desligado
     level_points=env("DETECTOR_LEVEL_POINTS", 3, int),
     ae_retrain=env("DETECTOR_AE_RETRAIN", 12, int),  # retreina o AE a cada 12 passos (1 min)
     lstm_seq_len=env("LSTM_SEQ_LEN", 12, int),       # pontos anteriores usados na previsão (1 min)
@@ -86,10 +91,11 @@ class OnlineDetector:
     """Mantém a janela e calcula, por detector, (score_ratio, alert)."""
 
     def __init__(self, algos, window=60, gap=6, k_sigma=2.0, level_points=3, ae_retrain=12, sigma_floor=0.0,
-                 lstm_seq_len=12, lstm_retrain=12):
+                 lstm_seq_len=12, lstm_retrain=12, feature_floor=0.0):
         self.algos = list(algos)
         self.window, self.gap, self.k = window, gap, k_sigma
         self.sigma_floor = sigma_floor
+        self.feature_floor = feature_floor
         self.lstm_seq_len, self.lstm_retrain = lstm_seq_len, lstm_retrain
         self.lstm_model, self.lstm_age = None, 0
         self.min_ref = max(20, window // 3)
@@ -110,6 +116,13 @@ class OnlineDetector:
             self._last_valid[j] = v
             out.append(float(v))
         return out
+
+    def _scale(self, ref):
+        """μ e σ de cada feature na referência, com σ_entrada = máx(σ, piso·|μ|) (e 1 se ainda ~0)."""
+        mu, sd = ref.mean(0), ref.std(0)
+        sd = np.maximum(sd, self.feature_floor * np.abs(mu))
+        sd[sd < 1e-9] = 1.0
+        return mu, sd
 
     def _zratio(self, ref_scores, cur):
         """(nota − μ) / (K·σ_ef), σ_ef = máx(σ, piso·|μ|). Usado por IF, LOF e AE."""
@@ -192,8 +205,7 @@ class OnlineDetector:
                 self.last_alerts[a].append(0)
                 out[a] = (0.0, 0, 0.0)
             return out
-        mu, sd = ref.mean(0), ref.std(0)
-        sd[sd < 1e-9] = 1.0
+        mu, sd = self._scale(ref)
         Xr, xc = (ref - mu) / sd, ((cur - mu) / sd).reshape(1, -1)
         fns = {"EWMA": lambda: self._ewma(ref, cur), "IF": lambda: self._if(Xr, xc),
                "LOF": lambda: self._lof(Xr, xc), "DBSCAN": lambda: self._dbscan(Xr, xc),
@@ -235,11 +247,11 @@ def serve(cfg):
         lstm_model._t()
     det = OnlineDetector(cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"],
                          cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"],
-                         cfg["lstm_seq_len"], cfg["lstm_retrain"])
+                         cfg["lstm_seq_len"], cfg["lstm_retrain"], cfg["feature_floor"])
     start_http_server(cfg["port"])
-    log.info("online_detector em :%s | algos=%s | janela=%s gap=%s K=%s piso_σ=%s | Prometheus=%s",
+    log.info("online_detector em :%s | algos=%s | janela=%s gap=%s K=%s piso_σ=%s piso_entrada=%s | Prometheus=%s",
              cfg["port"], cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"], cfg["sigma_floor"],
-             cfg["prom_url"])
+             cfg["feature_floor"], cfg["prom_url"])
     sess = requests.Session()
 
     while True:
@@ -274,7 +286,7 @@ def replay(cfg, path, out_path=None):
     rows = list(csv.DictReader(open(path)))
     det = OnlineDetector(cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"],
                          cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"],
-                         cfg["lstm_seq_len"], cfg["lstm_retrain"])
+                         cfg["lstm_seq_len"], cfg["lstm_retrain"], cfg["feature_floor"])
 
     def num(v):
         try:
@@ -298,7 +310,7 @@ def replay(cfg, path, out_path=None):
             w.writerows(records)
     y = np.array([int(r["label"]) for r in records])
     print(f"Replay {os.path.basename(path)}: {len(records)} pontos, {int(y.sum())} anômalos "
-          f"(piso_σ={cfg['sigma_floor']})")
+          f"(piso_σ={cfg['sigma_floor']}, piso_entrada={cfg['feature_floor']})")
     print(f"  {'detector':<8} {'prec':>6} {'recall':>7} {'F1':>6} {'alarmes':>8}")
     for a in cfg["algos"]:
         p = np.array([r[f"alert_{a}"] for r in records])

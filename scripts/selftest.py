@@ -5,7 +5,7 @@ PPGCC/UFMA — Ricardo F. Costa — 2026
   make selftest      (ou: python selftest.py)
 
 Verifica:
-  1. os 5 detectores offline sobre uma série sintética com 3 rajadas
+  1. os 6 detectores offline sobre uma série sintética com 3 rajadas
   2. o detector online (janela deslizante) alarma dentro da rajada
   3. o IC reproduz o exemplo do slide 55 da disciplina
   4. as métricas do HPA (tempo de reação, pod·s, scale-ups falsos)
@@ -15,6 +15,7 @@ Verifica:
   8. a estatística com N = 1 (pairwise sem teste t)
   9. o LSTM (6º detector): offline acha um pico injetado, online devolve razão
      finita, e duas execuções com a mesma semente dão o mesmo resultado
+  10. o piso relativo na padronização das entradas (DETECTOR_FEATURE_FLOOR)
 """
 import json
 import logging
@@ -135,6 +136,22 @@ class T(unittest.TestCase):
         ref2 = 0.001 + np.tile([-1e-7, 1e-7], 30)
         self.assertAlmostEqual(sem._zratio(ref2, 0.001 * 1.02), 100.0, places=3)
         self.assertAlmostEqual(com._zratio(ref2, 0.001 * 1.02), 0.2, places=6)
+
+    def test_feature_floor(self):
+        # memória quase constante (σ ≈ 0,005 MB) e um salto de 0,25 MB (piloto 3, 140–145 s):
+        # sem piso nas entradas vira ~50σ; com piso de 1% vira ~0,3σ
+        from online_detector import OnlineDetector
+        rng = np.random.default_rng(1)
+        ref = np.column_stack([0.005 + rng.normal(0, 0.0002, 60), 2 + rng.normal(0, 0.2, 60),
+                               82.69 + rng.normal(0, 0.005, 60), 6.6 + rng.normal(0, 0.1, 60)])
+        cur = ref.mean(0) + [0, 0, 0.25, 0]
+        mu0, sd0 = OnlineDetector([], feature_floor=0.0)._scale(ref)
+        mu, sd = OnlineDetector([], feature_floor=0.01)._scale(ref)
+        z_sem = abs((cur[2] - mu0[2]) / sd0[2])
+        z_com = abs((cur[2] - mu[2]) / sd[2])
+        self.assertGreater(z_sem, 20)
+        self.assertLess(z_com, 1)
+        self.assertAlmostEqual(sd[0], ref[:, 0].std(), places=9)   # latência: σ real > 1% de μ, não muda
 
     def test_check_inicio(self):
         # alertas online antes da 1ª janela anômala do cenário (lida de ANOMALY_PHASES)

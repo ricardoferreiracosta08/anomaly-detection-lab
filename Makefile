@@ -23,6 +23,7 @@ export
 ROLE        ?= local
 # .env antigo sem a variável: piso do σ do detector online no padrão (0 = desligado)
 DETECTOR_SIGMA_FLOOR ?= 0.05
+DETECTOR_FEATURE_FLOOR ?= 0.01
 # .env antigo sem as variáveis do LSTM (6º detector): padrões fixos da arquitetura
 LSTM_SEQ_LEN ?= 12
 LSTM_HIDDEN  ?= 16
@@ -252,6 +253,7 @@ detector-config:
 		--from-literal=DETECTOR_GAP=$(DETECTOR_GAP) \
 		--from-literal=DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) \
 		--from-literal=DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) \
+		--from-literal=DETECTOR_FEATURE_FLOOR=$(DETECTOR_FEATURE_FLOOR) \
 		--from-literal=DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) \
 		--from-literal=DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
 		--from-literal=LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) --from-literal=LSTM_HIDDEN=$(LSTM_HIDDEN) \
@@ -263,7 +265,7 @@ detector-config:
 ## Detector online no cluster (score dos 6 detectores no Prometheus/Grafana)
 ## Idempotente: o hash da configuração vai numa anotação do pod; o Kubernetes só
 ## recria o pod se a configuração (ou a imagem, via make rebuild) mudou.
-DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_SIGMA_FLOOR)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(LSTM_SEQ_LEN)|$(LSTM_HIDDEN)|$(LSTM_EPOCHS)|$(LSTM_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
+DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_SIGMA_FLOOR)|$(DETECTOR_FEATURE_FLOOR)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(LSTM_SEQ_LEN)|$(LSTM_HIDDEN)|$(LSTM_EPOCHS)|$(LSTM_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
 detector-deploy: detector-config
 	@DETECTOR_CONFIG_HASH=$(DETECTOR_CONFIG_HASH) $(RENDER) k8s/detector/online-detector.yaml | kubectl apply -f - >/dev/null
 	@echo "→ Detector online aplicado (algos: $(DETECTOR_ALGOS); config $(DETECTOR_CONFIG_HASH))"
@@ -280,7 +282,7 @@ online-replay:
 	@mkdir -p results && chmod 777 results
 	@docker run --rm -v $(CURDIR)/$(dir $(CSV)):/in:ro -v $(CURDIR)/results:/results \
 		-e DETECTOR_ALGOS=$(DETECTOR_ALGOS) -e DETECTOR_WINDOW=$(DETECTOR_WINDOW) \
-		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) -e DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) \
+		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) -e DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) -e DETECTOR_FEATURE_FLOOR=$(DETECTOR_FEATURE_FLOOR) \
 		-e DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) -e DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
 		-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) -e LSTM_RETRAIN=$(LSTM_RETRAIN) \
 		$(ANALYSIS_IMAGE) online_detector.py --replay /in/$(notdir $(CSV)) \
