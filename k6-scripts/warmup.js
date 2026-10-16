@@ -13,15 +13,20 @@
 //   com "normal com carga" antes de o roteiro começar.
 //
 // O QUE FAZ:
-//   Carga CONSTANTE com o mesmo mix de requisições da fase normal de cada roteiro
+//   Carga constante com o mesmo mix de requisições da fase normal de cada roteiro
 //   (cópia fiel da lógica normal de burst-anomaly.js, rampup-irregular.js e
 //   load-shifting.js; os roteiros não são alterados). Não gera CSV, não entra na
 //   avaliação e não grava summary.
+//   Termina com uma rampa de descida (VUS → 0 em RAMP_DOWN s). O bin/experiment.sh
+//   começa o roteiro RAMP_DOWN s antes do fim do aquecimento: enquanto o aquecimento
+//   desce, o roteiro sobe (0 → VUS em 30 s, sua 1ª rampa) e a carga total fica
+//   constante na troca (piloto 3: sem isso, AE/DBSCAN/LOF alarmavam de 15 a 45 s).
 //
 // VARIÁVEIS (passadas pelo bin/experiment.sh):
 //   SCENARIO  burst | rampup | shift   (qual mix normal reproduzir)
-//   VUS       VUs constantes (nível no fim da 1ª rampa do roteiro)
-//   DURATION  duração, ex.: 330s       (WARMUP_SECONDS)
+//   VUS        VUs constantes (nível no fim da 1ª rampa do roteiro)
+//   WARMUP_SECONDS duração total em segundos, rampa de descida incluída
+//   RAMP_DOWN  segundos da rampa de descida no fim (padrão 30 = 1ª rampa dos roteiros)
 // =====================================================================
 
 import http from "k6/http";
@@ -30,11 +35,21 @@ import { ENDPOINTS, tagPhase } from "./config.js";
 
 const SCENARIO = __ENV.SCENARIO || "burst";
 const VUS = parseInt(__ENV.VUS || "10", 10);
-const DURATION = __ENV.DURATION || "330s";
+const SECONDS = parseInt(__ENV.WARMUP_SECONDS || "330", 10);
+const RAMP_DOWN = Math.min(parseInt(__ENV.RAMP_DOWN || "30", 10), SECONDS);
+const DURATION = `${SECONDS}s`;
 
 export const options = {
   scenarios: {
-    warmup: { executor: "constant-vus", vus: VUS, duration: DURATION, gracefulStop: "5s" },
+    warmup: {
+      executor: "ramping-vus",
+      startVUs: VUS,
+      stages: [
+        { duration: `${SECONDS - RAMP_DOWN}s`, target: VUS },   // carga normal constante
+        { duration: `${RAMP_DOWN}s`, target: 0 },               // desce enquanto o roteiro sobe
+      ],
+      gracefulRampDown: "0s",
+    },
   },
 };
 

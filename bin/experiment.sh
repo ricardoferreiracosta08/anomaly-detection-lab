@@ -22,6 +22,7 @@
 #     da execução só é aplicado depois da conferência das réplicas, logo antes
 #     do roteiro → toda execução começa com o mínimo de réplicas, em qualquer modo
 #   - a app é reiniciada antes de cada execução (estado limpo: 100 itens por pod)
+#   - troca aquecimento → roteiro com as rampas sobrepostas (carga constante)
 #   - retomável/idempotente: execução já concluída é pulada (marcadores em
 #     results/.done/); apagar o marcador força refazer aquela execução
 #
@@ -142,18 +143,36 @@ print(';'.join(str(int(float(x['value'][1]))) for x in sorted(r['data']['result'
 " 2>/dev/null || echo "?"
 }
 
-# ── aquecimento: carga normal constante logo antes do roteiro (HPA no modo A) ─
-warmup() {   # warmup <cenario> <key>
-    local sc=$1 key=$2 vus=${WARMUP_VUS[$1]} ok lvl items
-    if (( WARMUP_SECONDS <= 0 )); then
-        log "→ aquecimento desligado (WARMUP_SECONDS=0)"; return
-    fi
-    log "→ aquecimento: $vus VUs por ${WARMUP_SECONDS}s, HPA no modo A (mix da fase normal do $sc; não gera CSV)"
-    docker run --rm --network "$DOCKER_NET" "${CPUSET[@]}" \
+# ── aquecimento: carga normal constante (HPA no modo A), com sobreposição na troca ─
+# warmup_start dispara o k6 do aquecimento em segundo plano; warmup_handoff espera até
+# RAMP_DOWN s antes do fim dele, confere réplicas/anomaly_level/itens, aplica o modo e
+# volta na hora de o roteiro começar. O roteiro sobe (0 → VUs em 30 s) enquanto o
+# aquecimento desce (VUs → 0 em 30 s): carga total constante na troca (piloto 3: sem
+# isso, AE/DBSCAN/LOF alarmavam de 15 a 45 s).
+RAMP_DOWN="${WARMUP_OVERLAP:-30}"   # = 1ª rampa dos três roteiros (30 s); 0 = sem sobreposição
+CHECK_MARGIN=15     # s antes da troca reservados para as conferências e o apply_mode
+WARM_PID=""; WARM_T0=0
+warmup_start() {   # warmup_start <cenario>
+    local sc=$1 vus=${WARMUP_VUS[$1]}
+    WARM_PID=""
+    (( WARMUP_SECONDS > 0 )) || { log "→ aquecimento desligado (WARMUP_SECONDS=0)"; return; }
+    log "→ aquecimento: $vus VUs por ${WARMUP_SECONDS}s, HPA no modo A, descida nos últimos ${RAMP_DOWN}s (mix da fase normal do $sc; não gera CSV)"
+    WARM_T0=$(date +%s)
+    ( docker run --rm --network "$DOCKER_NET" "${CPUSET[@]}" \
         -v "$PWD/k6-scripts:/scripts:ro" \
-        -e BASE_URL="$APP_URL" -e SCENARIO="$sc" -e VUS="$vus" -e DURATION="${WARMUP_SECONDS}s" \
-        "$K6_IMAGE" run --quiet /scripts/warmup.js 2>&1 | tail -2 || true
-    # só a conferência das réplicas entre o fim do aquecimento e o roteiro (sem sleep)
+        -e BASE_URL="$APP_URL" -e SCENARIO="$sc" -e VUS="$vus" \
+        -e WARMUP_SECONDS="$WARMUP_SECONDS" -e RAMP_DOWN="$RAMP_DOWN" \
+        "$K6_IMAGE" run --quiet /scripts/warmup.js 2>&1 | tail -2 || true ) &
+    WARM_PID=$!
+}
+
+warmup_handoff() {   # warmup_handoff <cenario> <key> <modo|->
+    local sc=$1 key=$2 mode=$3 vus=${WARMUP_VUS[$1]} ok lvl items handoff now
+    if [ -n "$WARM_PID" ]; then
+        handoff=$(( WARM_T0 + WARMUP_SECONDS - RAMP_DOWN ))
+        now=$(date +%s)
+        if (( handoff - CHECK_MARGIN > now )); then sleep $(( handoff - CHECK_MARGIN - now )); fi
+    fi
     read_replicas
     lvl=$(level_b)
     items=$(items_per_pod)
@@ -169,6 +188,21 @@ warmup() {   # warmup <cenario> <key>
     fi
     [ -f results/warmup_log.csv ] || echo "$header" > results/warmup_log.csv
     echo "$PHASE,$key,$sc,$vus,$WARMUP_SECONDS,$(date +%s),$cur,$des,$min,$ok,${HPA_B_DETECTOR:-IF},$lvl,$items" >> results/warmup_log.csv
+    # o modo da execução só entra agora (Fase 3); no A nada muda
+    if [ "$mode" != "-" ] && [ "$mode" != "A" ]; then apply_mode "$mode"; fi
+    if [ -n "$WARM_PID" ]; then
+        now=$(date +%s)
+        if (( now > handoff )); then
+            log "⚠ conferências passaram da troca em $(( now - handoff ))s: sobreposição das rampas menor que ${RAMP_DOWN}s"
+        else
+            sleep $(( handoff - now ))
+        fi
+    fi
+}
+
+warmup_wait() {
+    [ -n "$WARM_PID" ] && { wait "$WARM_PID" || true; }
+    WARM_PID=""
 }
 
 apply_mode() {   # apply_mode A|B|C|D
@@ -208,11 +242,12 @@ one_run() {   # one_run <modo|-> <cenario> <rep>
     [ "$mode" != "-" ] && apply_mode A
     if [ "${RESTART_APP:-1}" = "1" ]; then restart_app; else log "→ app NÃO reiniciada (RESTART_APP=0)"; fi
     wait_baseline
-    warmup "$sc" "$key"
-    if [ "$mode" != "-" ] && [ "$mode" != "A" ]; then apply_mode "$mode"; fi
+    warmup_start "$sc"
+    warmup_handoff "$sc" "$key" "$mode"
     log "══════ $key (${DURATION[$sc]}s) → $APP_URL ══════"
     start=$(date +%s)
     run_k6 "$sc" "$summ"
+    warmup_wait
     if [ ! -s "results${summ#/results}" ]; then   # k6 não terminou: execução inválida, será refeita
         log "✗ $key inválida (k6 sem resumo; queda de conexão?). Será refeita na próxima chamada."
         return
