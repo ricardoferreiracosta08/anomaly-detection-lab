@@ -16,7 +16,7 @@ Docker 24+. `./setup.sh` instala k3d e kubectl. k6, Python, scikit-learn e o det
 cp .env.example .env        # ROLE=local, CLUSTER_HOST=localhost
 make up                     # cluster + app + Prometheus + Grafana + detector online + adapter + HPA (modo A)
 make selftest               # autoteste do código de análise (sem cluster, ~30 s)
-make experiment-quick       # 1 rodada burst + 5 detectores + estatística (~14 min)
+make experiment-quick       # 1 rodada burst + 5 detectores + estatística (~20 min)
 ```
 
 Grafana em `http://localhost:5090`, com os dashboards **Anomaly Detection Lab** e **Detector Online & HPA**.
@@ -61,6 +61,12 @@ O passo a passo completo, com o teste da VPN e a solução de problemas, está e
 | DBSCAN | densidade global | 4 | ruído = anomalia; min_samples = 8, eps = P90 da k-distância |
 | AE | reconstrução neural | 4 | MLP 4-3-2-3-4; erro > μ + 2σ |
 
+• EWMA: Ele não sabe o que é uma falha. Ele só decora o ritmo normal da fila. Se o ritmo mudar de repente, ele desconfia.
+• Isolation Forest (IF): Ele não sabe quem é o vilão. Ele só repara que algumas pessoas são tão diferentes que são fáceis de isolar com poucas perguntas.
+• LOF: Ele só olha quem ficou no "vácuo", longe de qualquer grupinho de 20 pessoas.
+• DBSCAN: Ele cria os grupos por proximidade física. Quem sobrou sozinho no escuro, do lado de fora dos círculos, vira anomalia.
+• Autoencoder (AE): Você treina ele mostrando a festa rolando normalmente. Ele aprende a desenhar o "normal". Quando aparece algo diferente, ele erra o desenho porque nunca viu aquilo antes.
+
 **Offline (Fase 1):** cada detector analisa o CSV inteiro da execução.
 
 **Online (Fase 2):** a cada 5 s, cada detector é ajustado numa janela de referência de 60 pontos (5 min), que termina 30 s antes do ponto atual. O limiar é dinâmico: μ + K·σ dos scores da janela, com K = 2. Para testar sem cluster:
@@ -101,6 +107,7 @@ Cada `make` está explicado um a um em **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 | `make hpa-experiment` / `make hpa-analyze` | Fase 3 |
 | `make hpa-mode HPA_MODE=B` / `make phase2-check` | troca o modo / confere a métrica externa |
 | `make detector-logs` / `make online-replay` | logs do detector / teste sem cluster |
+| `make check-inicio DIR=datasets_hpa` | alertas online antes da 1ª anomalia (falsos alarmes do início) |
 | `make vpn-check` / `make kubeconfig` | notebook → VPS / exporta o acesso da VPS (topologia B) |
 | `make cpu-pin` | fixa o cluster em `CLUSTER_CPUS` (topologia A; o `make experiment` já chama) |
 | `make selftest` | autoteste do código |
@@ -113,10 +120,10 @@ Cada `make` está explicado um a um em **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 .env.example            configuração única (portas, papel, REPS, detector, HPA)
 setup.sh                pré-requisitos + gera k3d-config.yaml do .env
 Makefile                orquestrador idempotente
-bin/experiment.sh       rodadas (Fase 1 e 3): ordem aleatória, condição inicial, retomável
+bin/experiment.sh       rodadas (Fase 1 e 3): ordem aleatória, condição inicial, aquecimento, retomável
 bin/render.sh           substitui ${VAR} do .env nos manifests (sem envsubst/helm)
 app/                    FastAPI (5 endpoints, 1 worker por pod)
-k6-scripts/             burst, rampup, shift (+ summary por execução)
+k6-scripts/             burst, rampup, shift (+ summary por execução); warmup (aquecimento, fora da avaliação)
 k8s/app/                Deployment + Service da aplicação
 k8s/monitoring/         Prometheus, Grafana (2 dashboards), kube-state-metrics
 k8s/detector/           detector online (template)

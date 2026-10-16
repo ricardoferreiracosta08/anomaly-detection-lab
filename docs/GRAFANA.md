@@ -103,6 +103,7 @@ As janelas anômalas do burst começam aos 150 s, 305 s e 465 s após o início 
 
 | Momento | Anomaly Detection Lab | Detector Online & HPA |
 |---|---|---|
+| aquecimento (`WARMUP_SECONDS`, antes do roteiro) | req/s constante no nível normal; 2 réplicas | scores sobem no começo e se acomodam abaixo de 1 |
 | antes do pico | req/s estável, p95 baixo, 2 réplicas | scores abaixo de 1, sem alertas, níveis em 0 |
 | início do pico | req/s e p95 sobem; CPU começa a subir | scores cruzam 1; alertas aparecem; níveis sobem para 0,33 → 0,67 → 1 |
 | **modo A** | réplicas sobem só quando a CPU passa do alvo | níveis sobem, mas não mexem nas réplicas |
@@ -110,34 +111,24 @@ As janelas anômalas do burst começam aos 150 s, 305 s e 465 s após o início 
 | fim do pico | req/s e p95 voltam | alertas devem parar; se continuam, é atraso ou falso alarme |
 | depois | réplicas descem devagar (120 s de espera, −1 pod/min) | níveis em 0 |
 
-## 4. Problemas conhecidos e como verificar
+## 4. Problemas (já corrigidos) e como verificar
 
-### Referência "vazia" no início de cada execução (possível causa de falsos alarmes)
+### Referência "vazia" no início de cada execução (corrigido)
 
-Entre execuções, o cluster fica parado (cooldown de `COOLDOWN` s, mais a espera pelas 2 réplicas). A janela de referência do detector (5 min) é feita quase só desse silêncio. Quando o k6 começa o tráfego **normal**, o detector o compara com o silêncio e pode alarmar antes da primeira anomalia (aos 150 s). Cada alarme ali é um falso positivo.
+**Era assim (piloto 2, [PILOTOS.md](PILOTOS.md)):** entre execuções, o cluster fica parado (espera pelas 2 réplicas + `COOLDOWN`). A janela de referência do detector (5 min) era feita quase só desse silêncio. Quando o k6 começava o tráfego **normal**, o detector o comparava com o silêncio e alarmava antes da primeira anomalia: **53–87%** dos primeiros 150 s do burst em alerta, todos falsos positivos. No modo B, isso virou scale-ups falsos.
 
-**Analogia: o segurança da loja.** O detector é como um segurança que só conhece a loja pelo que viu nos últimos 5 minutos:
+**Analogia: o segurança da loja.** O detector é como um segurança que só conhece a loja pelo que viu nos últimos 5 minutos. Entre uma execução e outra a loja ficava **vazia**; ele concluía "normal = loja vazia" e, quando chegavam os clientes normais, disparava o alarme. Com a loja vazia ele também ficava hipersensível: qualquer movimento mínimo parecia enorme (σ ≈ 0, score do AE em ~10⁵).
 
-1. Entre uma execução e outra, a loja fica **vazia** (cooldown, sem carga).
-2. O segurança passa esses minutos vendo a loja vazia e conclui: "normal = loja vazia".
-3. A execução começa e chegam os clientes **normais** (o tráfego base do k6). Para quem só viu a loja vazia, aquilo é estranho, e ele dispara o alarme.
-4. Não era assalto: a anomalia de verdade só começa aos 150 s. Cada alarme nesse trecho conta como **falso alarme** e derruba a precisão.
+**As duas correções (implementadas):**
+- **aquecimento** (`WARMUP_SECONDS`, padrão 330 s): antes de cada execução, o `k6-scripts/warmup.js` roda a carga normal do cenário por uma referência inteira. O segurança passa a conhecer a loja **em funcionamento**;
+- **piso relativo do σ** (`DETECTOR_SIGMA_FLOOR`, padrão 0,05): σ_ef = máx(σ, piso·|μ|), para não se assustar com movimentos mínimos quando a loja está quase parada.
 
-Com a loja vazia, o segurança também fica hipersensível: tudo parado, qualquer movimento mínimo parece enorme. É o σ ≈ 0 que faz o score do AE explodir com o cluster ocioso.
+Detalhes, VUs por cenário, o transiente de 30 s na troca aquecimento → roteiro e a validação do piso: [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md).
 
-As duas correções, na mesma analogia:
-- **aquecimento:** deixar alguns clientes circulando durante o cooldown, para o segurança aprender como é a loja **em funcionamento**;
-- **piso para o σ:** ensinar o segurança a não se assustar com movimentos mínimos quando a loja está quase parada.
-
-No Grafana: alertas e scores acima de 1 **nos primeiros 150 s** da execução, quando ainda não há anomalia. Também picos de score com o cluster ocioso (σ ≈ 0).
-
-Nos dados, por exemplo: *"no datasets_hpa/A_burst_run1.csv, conte quantos 1 cada coluna online_* tem com offset_seconds < 150"*. Nesse trecho o `label` é sempre 0.
-
-Correções possíveis (decisão de método, **antes** das 10 repetições, com o orientador):
-- **aquecimento:** tráfego normal leve durante o cooldown, para a referência conter "normal com carga" (`bin/experiment.sh`);
-- **piso para o σ** no cálculo da razão (`scripts/online_detector.py`).
-
-Detalhes em [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md).
+**Como conferir que continua corrigido:**
+- **No Grafana:** durante o aquecimento (o terminal mostra `→ aquecimento: …`), os scores sobem no começo e se acomodam abaixo de 1; nos primeiros 150 s do roteiro, alertas devem ser raros e isolados.
+- **Nos dados:** `make check-inicio` (ou `make check-inicio DIR=datasets_hpa`) mostra os alertas antes da 1ª anomalia de cada execução. Critério: perto de 0% (era 53–87%).
+- **Com o cluster ocioso** (fora de qualquer execução) a referência volta a ser silêncio; alertas ali **não** são avaliados e não indicam problema. A partida a frio está fora do escopo do detector.
 
 ### Painéis de visualização (corrigidos)
 

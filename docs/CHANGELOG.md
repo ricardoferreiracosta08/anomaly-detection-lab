@@ -50,6 +50,22 @@
   - `docs/COMANDOS.md`: seção "Administração pela CLI" com os comandos `kubectl`/`k3d` de consulta;
   - `docs/RUNBOOK_VPS_VPN.md` reescrito: TL;DR no topo, topologias A e B, teste da VPN com `curl`, `tmux`/`nohup`, diagnóstico de "connection refused".
 
+## Novo (16/out, depois do piloto 2): falsos alarmes com referência "vazia"
+
+**Por quê.** No piloto 2 ([PILOTOS.md](PILOTOS.md)), os 5 detectores online passaram **53–87%** dos primeiros 150 s do burst em alerta, sem nenhuma anomalia. Causa: entre execuções o cluster fica parado, e a janela de referência do detector (5 min) era feita desse silêncio; o tráfego **normal** do início do roteiro parecia anômalo. No modo B isso virou 2 scale-ups falsos, +48% de custo e tempo de reação indefinido. Com o cluster ocioso, o σ das notas ia a ~0 e a razão chegava a ~10⁵ (AE).
+
+- **Aquecimento antes de cada execução** (`WARMUP_SECONDS`, padrão 330 s = (60 + 6) × 5 s, o tamanho da referência + gap; `0` desliga):
+  - `k6-scripts/warmup.js` (novo): carga constante com o **mesmo mix da fase normal** de cada roteiro; VUs = nível no fim da 1ª rampa (burst 10, rampup 10, shift 30, mapa `WARMUP_VUS` no `bin/experiment.sh`). Os roteiros k6 e o ground truth **não** mudaram;
+  - roda depois do `wait_baseline` e do cooldown e imediatamente antes do roteiro, nos núcleos `LOADGEN_CPUS`; entre o fim do aquecimento e o roteiro, só a conferência das réplicas, sem espera;
+  - se o HPA escalou durante o aquecimento, o log avisa; cada aquecimento é registrado em `results/warmup_log.csv`. Não gera CSV nem entra na avaliação;
+  - **Fase 3: aquecimento sempre no modo A.** Espera, cooldown e aquecimento rodam com o HPA no modo A; o modo da execução (B, C ou D) só é aplicado depois da conferência das réplicas, imediatamente antes do roteiro. Antes, o modo era aplicado no início: um alarme na passagem "parado → aquecimento" faria o B escalar antes do roteiro e começar com mais réplicas que A e C. Agora toda execução começa com 2 réplicas, em qualquer modo (mesma condição inicial). O `warmup_log.csv` registra também o `anomaly_level` do detector do B ao fim do aquecimento (`b_detector`, `anomaly_level_b`, lido pelo Adapter como o HPA o veria);
+  - custo: +330 s por execução. Com REPS=10: Fase 1 = 30 execuções ≈ **+2,75 h**; Fase 3 (A, B, C) = 90 execuções ≈ **+8,25 h**.
+- **Piso relativo do σ** no detector online (`DETECTOR_SIGMA_FLOOR`, padrão 0,05; `0` = comportamento antigo): no `_zratio`, σ_ef = máx(σ, piso·|μ|). Vale para IF, LOF e AE (EWMA e DBSCAN não usam essa razão). Passado ao ConfigMap (`make detector-config`, entra no hash do pod) e ao `make online-replay`.
+  - **Validação** (replay dos 9 CSVs da qualificação, [validacao/piso_sigma.csv](validacao/piso_sigma.csv)): com piso 0 o replay reproduz exatamente o `results_qualificacao/online_replay_K2.csv` (45/45); com 0,05 o F1 médio é **idêntico** em 14 de 15 combinações e o LOF varia ±0,005. O piso não custa F1 em regime com carga; o efeito dele só aparece com o cluster ocioso (σ ≈ 0), que esses CSVs não têm. **Decidido: 0,05** (16/out). Motivo: no regime com carga não muda o F1, e com o cluster quase ocioso impede as razões de ~10⁵ do piloto 2; proteção sem custo medido. Registrado no regras do projeto e como padrão no `.env.example`.
+- **`make check-inicio DIR=…`** (`scripts/check_inicio.py`, novo): conta, por CSV e por detector, os alertas `online_*` antes da 1ª janela anômala do cenário (lida de `ANOMALY_PHASES`, não fixa em 150 s). Verificação permanente do problema.
+- **`make selftest`:** `test_sigma_floor` (referência constante + 2% → alarma sem piso, não alarma com piso; 50% alarma nos dois; o exemplo numérico da documentação) e `test_check_inicio`. Agora 9 testes.
+- **Escopo do detector online:** avaliado **em regime** (referência com carga normal); a partida a frio (pod recém-criado ou cluster vindo do zero) fica fora do escopo.
+
 ## Corrigido
 
 | Problema | Efeito | Correção |

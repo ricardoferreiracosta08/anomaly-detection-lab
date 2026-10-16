@@ -25,18 +25,19 @@ cp .env.example .env                     # só na primeira vez
 tmux new -A -s exp                       # cria a sessão ou volta a ela (caiu o SSH? rode de novo)
 ```
 
-**3. Degustação: confere tudo em ≈ 1 h, antes das rodadas longas**
+**3. Degustação: confere tudo em ≈ 1 h 15, antes das rodadas longas**
 
 Rode na ordem, dentro do tmux. Cada linha diz o que conferir antes de seguir.
 
 ```bash
-make selftest            # ≈ 30 s, sem cluster.  Confira: "Ran 7 tests ... OK"
+make selftest            # ≈ 40 s, sem cluster.  Confira: "Ran 9 tests ... OK"
 make status              # segundos.            Confira: pods Running; HPA com TARGETS preenchido
-make experiment-quick    # ≈ 15 min. Fase 1 com 1 burst.  Confira: termina sem erro e gera results/stats/phase1/relatorio.md
+make experiment-quick    # ≈ 20 min (com o aquecimento de 330 s). Fase 1 com 1 burst.  Confira: termina sem erro e gera results/stats/phase1/relatorio.md
 make online-replay CSV=datasets/burst_run1.csv   # poucos min. O mesmo burst no detector online, sem o atraso do cluster
 make hpa-mode HPA_MODE=B && make phase2-check   # segundos. Confira: um valor de anomaly_level E, na seção Metrics do HPA, a linha da métrica externa (só aparece no modo B)
-make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B   # ≈ 30 min. Fase 3: burst no modo A e no B
+make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B   # ≈ 40 min. Fase 3: burst no modo A e no B
 #                                               Confira: results/hpa/hpa_results.csv com 2 linhas (A e B)
+make check-inicio DIR=datasets_hpa   # segundos. Confira: alertas antes da 1ª anomalia perto de 0% (eram 53–87% sem aquecimento)
 ```
 
 | | Fase 1 (offline) | Detector online detecta | HPA escala pela anomalia |
@@ -51,19 +52,19 @@ Como ler a degustação:
 - **O replay separa as causas.** Compare o F1 do `online-replay` com o `<DET>_online` do `experiment-quick`: se o replay ficar bem acima, a perda vem do atraso do cluster, não dos detectores. Referência da qualificação (replay, burst, média de 3): AE 0,61 · DBSCAN 0,60 · IF 0,46 · LOF 0,39 · EWMA 0,34.
 - **Decida antes da rodada longa, com o orientador:** se o online será avaliado com tolerância de atraso ou não. Não decida depois de ver os resultados finais, e não reajuste o K (`DETECTOR_K_SIGMA`) olhando a Fase 1 definitiva.
 
-**Antes da rodada longa, apague a degustação** (senão o `make experiment` a conta como repetição 1 e a pula):
+**Antes da rodada longa, passe pelo [Checklist antes do experimento definitivo](#checklist-antes-do-experimento-definitivo).** Ele inclui apagar a degustação (senão o `make experiment` a conta como repetição 1 e a pula):
 
 ```bash
 make clean                               # apaga datasets/, datasets_hpa/ e results/; preserva os dados da qualificação
 ```
 
-**4. Rodadas longas (dentro do tmux)**
+**4. Rodadas longas (dentro do tmux), só depois do [checklist](#checklist-antes-do-experimento-definitivo)**
 
 ```bash
-make experiment                          # Fase 1 (≈ 8 h): 5 detectores × 3 cargas × 10
+make experiment                          # Fase 1 (≈ 11 h: 8 h + 2,75 h de aquecimento): 5 detectores × 3 cargas × 10
 #   → escolher o detector em results/stats/phase1/relatorio.md e fixar HPA_B_DETECTOR no .env
 make hpa-mode HPA_MODE=B && make phase2-check   # o B recebe a anomalia? (o hpa-experiment troca o modo sozinho a cada execução)
-make hpa-experiment                      # Fase 3 (≈ 24 h): HPA A × B × C × 3 cargas × 10
+make hpa-experiment                      # Fase 3 (≈ 32 h: 24 h + 8,25 h de aquecimento): HPA A × B × C × 3 cargas × 10
 ```
 
 **No notebook:** Grafana em `http://<IP_DA_VPN>:5090`. No fim: `scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results .`
@@ -71,6 +72,26 @@ make hpa-experiment                      # Fase 3 (≈ 24 h): HPA A × B × C ×
 Caiu algo? Rode o mesmo comando de novo: execuções concluídas são puladas, as interrompidas são refeitas.
 
 Detalhes do HPA (modos, por que existe o C, métricas e estatística): [HPA.md](HPA.md).
+
+---
+
+## Checklist antes do experimento definitivo
+
+Marque cada item **antes** do `make experiment` definitivo. Nenhum dado de piloto pode entrar nos resultados ([PILOTOS.md](PILOTOS.md)).
+
+**Antes da Fase 1:**
+
+- [ ] **Pilotos limpos:** `make clean` (apaga `datasets/`, `datasets_hpa/` e `results/`; preserva `datasets_qualificacao/` e `results_qualificacao/`). Os pilotos ficam registrados em `docs/PILOTOS.md`.
+- [ ] **`.env` final:** `WARMUP_SECONDS` > 0 (padrão 330) e `DETECTOR_SIGMA_FLOOR=0.05` (decidido em 16/out; ver `docs/CHANGELOG.md`). Conferir com `grep -E '^(WARMUP_SECONDS|DETECTOR_)' .env`.
+- [ ] **Imagem e detector com a configuração final:** `make build-analysis && make detector-deploy`, e `make detector-logs` mostra `piso_σ=<valor decidido>` na linha de partida.
+- [ ] **`make selftest` passando** (9 testes, OK).
+- [ ] **Último piloto dentro do critério:** `make check-inicio` (ou `DIR=datasets_hpa`) com alertas antes da 1ª anomalia perto de 0% — rodar **antes** do `make clean`, que apaga os CSVs.
+- [ ] **VPS sem carga anormal nos outros serviços:** `uptime` (load average baixo para o número de núcleos) e `docker stats --no-stream` sem container fora do lab consumindo CPU nos núcleos do cluster.
+
+**Antes da Fase 3 (além dos itens acima, exceto o `make clean`, que apagaria a Fase 1):**
+
+- [ ] **`HPA_B_DETECTOR` escolhido pela Fase 1 e registrado** (no `.env`, no `docs/CHANGELOG.md` e no regras do projeto, com o motivo). Não trocar depois ([HPA.md](HPA.md), seção 3).
+- [ ] **`make hpa-mode HPA_MODE=B && make phase2-check` ok:** `anomaly_level` aparece no Adapter e na seção Metrics do HPA.
 
 ---
 
@@ -146,7 +167,7 @@ ss -ltnp | grep -E ':(5070|5080|5090|6550)\b'    # portas em <IP_DA_VPN>
 
 O experimento precisa sobreviver à queda do SSH: sem isso, o `make experiment` morre junto com a sessão. O cluster continua de pé, porque é do Docker, mas fica sem carga. Use `tmux` ou `nohup`.
 
-**Fase 1** (cerca de 8 h com REPS=10):
+**Fase 1** (cerca de 11 h com REPS=10: 8 h de execuções + 30 aquecimentos de 330 s ≈ 2,75 h):
 
 ```bash
 tmux new -A -s exp         # cria ou volta à sessão. Ou: nohup make experiment > results/experiment.out 2>&1 &
@@ -163,7 +184,7 @@ Todos devem mostrar `0-5`. O HPA mede a CPU em relação ao `request` de cada po
 
 **Entre as fases:** escolha o detector do modo B pelo F1 online em `results/stats/phase1/relatorio.md` e fixe `HPA_B_DETECTOR` no `.env`. Não troque depois (ver [HPA.md](HPA.md), seção 3).
 
-**Fase 3** (cerca de 24 h com REPS=10): HPA A (CPU 50%), B (CPU + anomalia), C (CPU 35%, controle) × 3 cargas × `REPS`.
+**Fase 3** (cerca de 32 h com REPS=10: 24 h de execuções + 90 aquecimentos de 330 s ≈ 8,25 h): HPA A (CPU 50%), B (CPU + anomalia), C (CPU 35%, controle) × 3 cargas × `REPS`.
 
 ```bash
 make hpa-mode HPA_MODE=B   # a métrica de anomalia só entra no HPA no modo B
@@ -215,7 +236,7 @@ Com `ROLE=client`, `make up` não cria cluster: só roda o `vpn-check`. Desligue
 ## 3. Garantias do experimento (as duas topologias)
 
 - **Ordem aleatória:** os cenários (e os modos, na Fase 3) são sorteados em cada repetição, com semente fixa. O plano fica em `results/run_plan_phase{1,3}.csv`.
-- **Condição inicial:** antes de cada execução, o script espera o HPA voltar a 2 réplicas e depois aplica o `COOLDOWN`.
+- **Condição inicial:** antes de cada execução, o script (na Fase 3, sempre com o HPA no modo A) espera o HPA voltar a 2 réplicas, aplica o `COOLDOWN` e roda o **aquecimento** (`WARMUP_SECONDS`, carga normal constante do cenário, sem CSV). Ao fim do aquecimento confere de novo as réplicas; se o HPA escalou, avisa no log e registra em `results/warmup_log.csv` (com o `anomaly_level` do detector do B). Só então aplica o modo da execução e começa o roteiro.
 - **Retomável:** as execuções concluídas ficam marcadas em `results/.done/` e são puladas. Se algo cair, rode o mesmo comando de novo.
 - **Execução inválida:** se o k6 não terminar (sem resumo), a execução não é marcada e é refeita na próxima chamada.
 - **Saídas:**

@@ -20,7 +20,7 @@ Registro das execuções de **teste** (antes do experimento definitivo), com a c
 | Topologia | tudo na VPS (`ROLE=server`) |
 | Detector online | `DETECTOR_WINDOW=60` (5 min), `DETECTOR_GAP=6` (30 s), `DETECTOR_K_SIGMA=2`, `DETECTOR_LEVEL_POINTS=3` |
 | HPA | `ANOMALY_TARGET=500m`, `HPA_B_DETECTOR=IF` |
-| Entre execuções | `COOLDOWN=120`, **sem aquecimento**, **sem piso do σ** |
+| Entre execuções (pilotos 1 e 2) | `COOLDOWN=120`, **sem aquecimento**, **sem piso do σ** |
 | Núcleos (piloto 2) | cluster 0–5, k6 e análise 6–7 |
 
 ## Piloto 1 — Fase 1 rápida (16/out/2026, ~00:30)
@@ -87,19 +87,22 @@ Precisão / recall ao vivo: EWMA 0,25/0,20 · IF 0,36/0,60 · LOF 0,23/0,48 · D
 
 | Decisão | Motivo (piloto) | Estado |
 |---|---|---|
-| Aquecimento com a carga base do cenário antes de cada execução (`WARMUP_SECONDS`) | falsos alarmes com referência formada por silêncio (pilotos 1 e 2) | decidido; implementação em curso |
-| Piso relativo do σ (`DETECTOR_SIGMA_FLOOR`, opcional) | razões ~10⁵ com σ ≈ 0 (piloto 2, Grafana) | decidido como proteção; valor (0 ou 0,05) a fixar pelo replay da qualificação |
+| Aquecimento com a carga base do cenário antes de cada execução (`WARMUP_SECONDS`) | falsos alarmes com referência formada por silêncio (pilotos 1 e 2) | **implementado** (16/out): 330 s, VUs burst 10 / rampup 10 / shift 30 |
+| Piso relativo do σ (`DETECTOR_SIGMA_FLOOR`, opcional) | razões ~10⁵ com σ ≈ 0 (piloto 2, Grafana) | **implementado e decidido** (16/out): **0,05**. Replay da qualificação: F1 igual com 0 e 0,05 ([validação](DETECTOR_ONLINE.md#6-validação-do-piso)); proteção sem custo medido |
 | Métrica "réplicas no início de cada pico" no `hpa_metrics.py` | tempo de reação indefinido quando o sistema já está escalado (piloto 2) | proposta |
 | Calibrar o modo C para custo semelhante ao B | o ganho do B veio com +48% de custo (piloto 2) | proposta ([HPA.md](HPA.md), seção 2) |
 | Tolerância de atraso na avaliação do online | perda de precisão ao vivo × replay (piloto 1) | em aberto (orientador) |
 
-## Próximo piloto
+## Próximo piloto (piloto 3)
 
-Depois do aquecimento e do piso: repetir `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`.
+**O que mudou desde o piloto 2:** aquecimento de 330 s antes de cada execução, sempre com o HPA no modo A (o modo da execução só entra logo antes do roteiro), e piso do σ = 0,05. Antes de rodar: `git pull`, `make build-analysis` e `make detector-deploy` na VPS, para o pod usar o código e a configuração novos.
 
-O esperado, se as correções funcionarem:
-- `false_scaleups` do B perto de 0;
-- tempo de reação do B definido e menor que o do A;
-- custo do B próximo do A.
+**Comando:** `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C` (≈ 1 h: 3 execuções de ~12 min + 3 aquecimentos de 5,5 min + esperas). Depois: `make check-inicio DIR=datasets_hpa`.
 
-Registrar aqui como Piloto 3.
+**Critério de sucesso (fixado antes de rodar):**
+- **alertas iniciais** (`make check-inicio`, antes da 1ª anomalia): caem de **53–87%** para **perto de zero**. Alguns alertas isolados são esperados com K = 2 (≈ 2,3% dos pontos de uma normal ficam acima de μ + 2σ), e o transiente de 30 s na troca aquecimento → roteiro pode gerar algum;
+- **`false_scaleups` do modo B perto de 0** (eram 2).
+
+Também observar, sem critério fixo: o tempo de reação do B passa a ser **definido** (era indefinido); o custo (`pod_seconds`) do B fica próximo do A; o `results/warmup_log.csv` mostra `at_min=1` (HPA no mínimo ao fim do aquecimento) em todas as execuções e `anomaly_level_b` abaixo de 0,5 — se ficar ≥ 0,5, o B escalaria assim que aplicado e o falso alarme só mudou de lugar.
+
+Registrar aqui como Piloto 3, com a tabela do `check-inicio` e a do `hpa_results.csv`.

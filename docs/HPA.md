@@ -9,7 +9,7 @@
 
 ```bash
 make hpa-mode HPA_MODE=B && make phase2-check   # B recebe a métrica de anomalia?
-make hpa-experiment                              # Fase 3 completa (≈ 24 h com REPS=10)
+make hpa-experiment                              # Fase 3 completa (≈ 32 h com REPS=10, aquecimento incluído)
 less results/stats/phase3/relatorio.md           # resultado
 ```
 
@@ -82,6 +82,22 @@ Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro de
 4. Não troque depois de ver a Fase 3. Trocar o detector após ver o resultado invalida o teste estatístico (seria escolher o que deu certo).
 
 ## 4. O que é medido em cada execução
+
+### Condição inicial: igual em todos os modos
+
+Antes de **cada** execução da Fase 3, o `bin/experiment.sh` faz sempre a mesma sequência:
+
+1. aplica o **modo A** (só CPU);
+2. espera as réplicas voltarem ao mínimo (2) e aplica o `COOLDOWN`;
+3. roda o **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, sem CSV), ainda no modo A;
+4. confere as réplicas e lê o `anomaly_level` do detector do B (`HPA_B_DETECTOR`), como o HPA o veria pelo Adapter;
+5. **só então** aplica o modo da execução (B, C ou D; no A nada muda) e começa o roteiro, sem espera.
+
+**Por quê:** o aquecimento serve para o detector aprender "normal com carga" ([DETECTOR_ONLINE.md](DETECTOR_ONLINE.md)), mas a passagem "cluster parado → aquecimento" pode gerar alarmes. Se o aquecimento rodasse já no modo B, esses alarmes fariam o B escalar **antes** do roteiro, e as execuções do B começariam com mais réplicas que as do A e do C. Aquecendo sempre no modo A, **toda execução começa com 2 réplicas**, qualquer que seja o modo.
+
+**Registro:** `results/warmup_log.csv`, uma linha por execução: réplicas ao fim do aquecimento (`at_min` = 1 se no mínimo) e `anomaly_level_b`. Um `anomaly_level_b` ≥ 0,5 indica que o B escalaria logo que aplicado, ou seja, alarme residual do aquecimento; vale olhar junto com `false_scaleups`.
+
+### Métricas
 
 Cada execução (modo × cenário × repetição) gera **uma linha** em `results/hpa/hpa_results.csv` (`scripts/hpa_metrics.py`). As "janelas anômalas" são o ground truth do roteiro do k6 (as mesmas da Fase 1).
 
@@ -169,3 +185,5 @@ Repita com `HPA_MODE=A` para ver a diferença. No fim, `make hpa-mode HPA_MODE=A
 | B nunca escala pela anomalia | `anomaly_level` não chega a 0,67 | Grafana; baixar `DETECTOR_K_SIGMA` ou `ANOMALY_TARGET` e `make detector-deploy` (antes da Fase 3, nunca durante) |
 | muitas janelas sem reação em todos os modos | a carga não força scale-up | conferir no Grafana se a CPU passa do alvo nos picos |
 | "réplicas não voltaram ao mínimo" | descida lenta (120 s + 1 pod/min) | normal com 8 réplicas; `BASELINE_TIMEOUT` controla a espera |
+| "o HPA escalou durante o aquecimento" | CPU do aquecimento acima de 50% no modo A (carga normal pesada demais para 2 réplicas) | `results/warmup_log.csv` (`at_min=0`); a execução começa fora da condição inicial: avaliar se refaz |
+| `anomaly_level_b` ≥ 0,5 no `warmup_log.csv` | detector do B ainda alarmando ao fim do aquecimento | `make check-inicio DIR=datasets_hpa`; Grafana no fim do aquecimento; conferir o piso e o `WARMUP_SECONDS` |

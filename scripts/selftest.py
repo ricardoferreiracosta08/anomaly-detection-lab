@@ -10,6 +10,9 @@ Verifica:
   3. o IC reproduz o exemplo do slide 55 da disciplina
   4. as métricas do HPA (tempo de reação, pod·s, scale-ups falsos)
   5. o parser dos summaries do k6
+  6. o piso relativo do σ do detector online (DETECTOR_SIGMA_FLOOR)
+  7. a contagem de alertas antes da 1ª anomalia (check_inicio.py)
+  8. a estatística com N = 1 (pairwise sem teste t)
 """
 import json
 import logging
@@ -75,6 +78,36 @@ class T(unittest.TestCase):
         # 1ª rajada (150–185 s): ao menos um detector deve alarmar dentro dela
         first = (t >= 150) & (t <= 185)
         self.assertTrue(any(np.array(alerts[a])[first].any() for a in det.algos))
+
+    def test_sigma_floor(self):
+        # referência constante (cluster ocioso, σ ≈ 0) + ponto 2% acima da média:
+        # sem piso a razão explode (alarma); com piso 0,05 fica em 0,2 (não alarma).
+        # Uma variação grande (50%) alarma nos dois casos.
+        from online_detector import OnlineDetector
+        ref = np.full(60, 0.001)
+        sem = OnlineDetector(["IF"], k_sigma=2.0, sigma_floor=0.0)
+        com = OnlineDetector(["IF"], k_sigma=2.0, sigma_floor=0.05)
+        self.assertGreater(sem._zratio(ref, 0.001 * 1.02), 1.0)
+        self.assertAlmostEqual(com._zratio(ref, 0.001 * 1.02), 0.2, places=6)
+        self.assertGreater(sem._zratio(ref, 0.001 * 1.50), 1.0)
+        self.assertGreater(com._zratio(ref, 0.001 * 1.50), 1.0)
+        # exemplo da documentação: μ = 0,001, σ = 1e-7, variação de 2% → 100 sem piso, 0,2 com piso
+        ref2 = 0.001 + np.tile([-1e-7, 1e-7], 30)
+        self.assertAlmostEqual(sem._zratio(ref2, 0.001 * 1.02), 100.0, places=3)
+        self.assertAlmostEqual(com._zratio(ref2, 0.001 * 1.02), 0.2, places=6)
+
+    def test_check_inicio(self):
+        # alertas online antes da 1ª janela anômala do cenário (lida de ANOMALY_PHASES)
+        import pandas as pd
+        from check_inicio import count_initial
+        from export_metrics import ANOMALY_PHASES
+        first = min(a for a, _ in ANOMALY_PHASES["burst"])
+        off = np.arange(0, 300, 5.0)
+        d = pd.DataFrame({"offset_seconds": off, "online_IF": (off < 60).astype(int), "online_AE": 0})
+        r = count_initial(d, "burst")
+        self.assertEqual(r["pontos"], int((off < first).sum()))
+        self.assertEqual(r["online_IF"], 12)
+        self.assertEqual(r["online_AE"], 0)
 
     def test_ic_slide55(self):
         from stats_tlc import ic

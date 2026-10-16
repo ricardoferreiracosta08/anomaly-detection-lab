@@ -21,6 +21,9 @@ parte da referência e deixa de ser alarmada (o detector se adapta ao novo regim
 
 Limiar dinâmico (sem contamination fixo): para IF, LOF e AE o ponto atual é anômalo
 se score > média + K·DP dos scores da própria janela de referência.
+Piso relativo do DP (DETECTOR_SIGMA_FLOOR): σ_ef = máx(σ, piso·|μ|). Com a referência
+quase constante (cluster ocioso, σ ≈ 0), sem piso qualquer variação mínima vira uma
+razão enorme (piloto 2: ~10⁵). Piso 0 = desligado.
 EWMA: |z − μ| > L·σ (μ, σ da referência). DBSCAN: distância ao núcleo mais próximo > eps.
 
 Modos:
@@ -61,6 +64,7 @@ CFG = dict(
     window=env("DETECTOR_WINDOW", 60, int),        # 60 × 5 s = 5 min de referência
     gap=env("DETECTOR_GAP", 6, int),               # 6 × 5 s = 30 s fora da referência
     k_sigma=env("DETECTOR_K_SIGMA", 2.0, float),   # limiar dinâmico μ + K·σ (K=2: proposta da reunião)
+    sigma_floor=env("DETECTOR_SIGMA_FLOOR", 0.05, float),  # σ_ef = máx(σ, piso·|μ|); 0 = desligado
     level_points=env("DETECTOR_LEVEL_POINTS", 3, int),
     ae_retrain=env("DETECTOR_AE_RETRAIN", 12, int),  # retreina o AE a cada 12 passos (1 min)
     algos=[a.strip().upper() for a in env("DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE").split(",") if a.strip()],
@@ -75,9 +79,10 @@ CFG = dict(
 class OnlineDetector:
     """Mantém a janela e calcula, por detector, (score_ratio, alert)."""
 
-    def __init__(self, algos, window=60, gap=6, k_sigma=2.0, level_points=3, ae_retrain=12):
+    def __init__(self, algos, window=60, gap=6, k_sigma=2.0, level_points=3, ae_retrain=12, sigma_floor=0.0):
         self.algos = list(algos)
         self.window, self.gap, self.k = window, gap, k_sigma
+        self.sigma_floor = sigma_floor
         self.min_ref = max(20, window // 3)
         self.hist = collections.deque(maxlen=window + gap + 1)
         self.last_alerts = {a: collections.deque(maxlen=level_points) for a in self.algos}
@@ -98,7 +103,9 @@ class OnlineDetector:
         return out
 
     def _zratio(self, ref_scores, cur):
+        """(nota − μ) / (K·σ_ef), σ_ef = máx(σ, piso·|μ|). Usado por IF, LOF e AE."""
         mu, sd = float(np.mean(ref_scores)), float(np.std(ref_scores))
+        sd = max(sd, self.sigma_floor * abs(mu))
         return (cur - mu) / max(self.k * sd, 1e-9)
 
     # ── detectores ────────────────────────────────────────────────────────
@@ -196,10 +203,11 @@ def serve(cfg):
 
     q = queries()
     det = OnlineDetector(cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"],
-                         cfg["level_points"], cfg["ae_retrain"])
+                         cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"])
     start_http_server(cfg["port"])
-    log.info("online_detector em :%s | algos=%s | janela=%s gap=%s K=%s | Prometheus=%s",
-             cfg["port"], cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"], cfg["prom_url"])
+    log.info("online_detector em :%s | algos=%s | janela=%s gap=%s K=%s piso_σ=%s | Prometheus=%s",
+             cfg["port"], cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"], cfg["sigma_floor"],
+             cfg["prom_url"])
     sess = requests.Session()
 
     while True:
@@ -233,7 +241,7 @@ def serve(cfg):
 def replay(cfg, path, out_path=None):
     rows = list(csv.DictReader(open(path)))
     det = OnlineDetector(cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"],
-                         cfg["level_points"], cfg["ae_retrain"])
+                         cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"])
 
     def num(v):
         try:
@@ -254,7 +262,8 @@ def replay(cfg, path, out_path=None):
             w.writeheader()
             w.writerows(records)
     y = np.array([int(r["label"]) for r in records])
-    print(f"Replay {os.path.basename(path)}: {len(records)} pontos, {int(y.sum())} anômalos")
+    print(f"Replay {os.path.basename(path)}: {len(records)} pontos, {int(y.sum())} anômalos "
+          f"(piso_σ={cfg['sigma_floor']})")
     print(f"  {'detector':<8} {'prec':>6} {'recall':>7} {'F1':>6} {'alarmes':>8}")
     for a in cfg["algos"]:
         p = np.array([r[f"alert_{a}"] for r in records])

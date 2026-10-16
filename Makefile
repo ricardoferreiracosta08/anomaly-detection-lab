@@ -21,6 +21,8 @@ include .env
 export
 
 ROLE        ?= local
+# .env antigo sem a variável: piso do σ do detector online no padrão (0 = desligado)
+DETECTOR_SIGMA_FLOOR ?= 0.05
 DOCKER_NET  := host
 STAMP_DIR   := .stamps
 RENDER      := bin/render.sh
@@ -75,7 +77,7 @@ endef
 
 .PHONY: help setup up _up-cluster down server-up server-down ensure-cluster deploy \
         build build-analysis rebuild import-images \
-        detector-config detector-deploy detector-logs online-replay \
+        detector-config detector-deploy detector-logs online-replay check-inicio \
         ksm-deploy adapter-deploy hpa-mode hpa-status phase2-check \
         test-burst test-ramp test-shift \
         experiment experiment-quick detect k6-summary stats analyze \
@@ -226,6 +228,7 @@ detector-config:
 		--from-literal=DETECTOR_WINDOW=$(DETECTOR_WINDOW) \
 		--from-literal=DETECTOR_GAP=$(DETECTOR_GAP) \
 		--from-literal=DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) \
+		--from-literal=DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) \
 		--from-literal=DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) \
 		--from-literal=DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
 		--from-literal=TARGET_APP=$(TARGET_APP) \
@@ -235,7 +238,7 @@ detector-config:
 ## Detector online no cluster (score dos 5 detectores no Prometheus/Grafana)
 ## Idempotente: o hash da configuração vai numa anotação do pod; o Kubernetes só
 ## recria o pod se a configuração (ou a imagem, via make rebuild) mudou.
-DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
+DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_SIGMA_FLOOR)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
 detector-deploy: detector-config
 	@DETECTOR_CONFIG_HASH=$(DETECTOR_CONFIG_HASH) $(RENDER) k8s/detector/online-detector.yaml | kubectl apply -f - >/dev/null
 	@echo "→ Detector online aplicado (algos: $(DETECTOR_ALGOS); config $(DETECTOR_CONFIG_HASH))"
@@ -252,10 +255,17 @@ online-replay:
 	@mkdir -p results && chmod 777 results
 	@docker run --rm -v $(CURDIR)/$(dir $(CSV)):/in:ro -v $(CURDIR)/results:/results \
 		-e DETECTOR_ALGOS=$(DETECTOR_ALGOS) -e DETECTOR_WINDOW=$(DETECTOR_WINDOW) \
-		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) \
+		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) -e DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) \
 		-e DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) -e DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
 		$(ANALYSIS_IMAGE) online_detector.py --replay /in/$(notdir $(CSV)) \
 		--replay-out /results/replay_$(notdir $(CSV))
+
+## Alertas online antes da 1ª anomalia de cada CSV (falsos alarmes do início): make check-inicio DIR=datasets_hpa
+DIR ?= datasets
+check-inicio:
+	$(call check_analysis_image)
+	@ls $(DIR)/*.csv >/dev/null 2>&1 || { echo "✗ Nenhum CSV em $(DIR)/"; exit 1; }
+	@docker run --rm -v $(CURDIR)/$(DIR):/in:ro $(ANALYSIS_IMAGE) check_inicio.py /in
 
 ksm-deploy:
 	$(call check_kubectl)
@@ -478,6 +488,7 @@ help:
 	@echo ""
 	@echo "  Fase 2 (detector online)"
 	@echo "    make online-replay CSV=datasets_qualificacao/burst_run1.csv   testa sem cluster"
+	@echo "    make check-inicio DIR=datasets_hpa   alertas online antes da 1ª anomalia (falsos alarmes)"
 	@echo "    make detector-deploy | detector-logs"
 	@echo "    make hpa-mode HPA_MODE=B | hpa-status | phase2-check"
 	@echo ""

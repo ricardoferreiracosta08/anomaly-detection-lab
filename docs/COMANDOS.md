@@ -82,7 +82,7 @@ Roda **uma** execução do cenário contra o cluster e salva o resumo do k6 em `
 
 ### `make experiment`
 O experimento completo:
-1. Roda cada carga `REPS` vezes (padrão 10, ou seja, 30 execuções e cerca de 8 h). A ordem é sorteada a cada repetição e cada execução começa com o HPA de volta a 2 réplicas.
+1. Roda cada carga `REPS` vezes (padrão 10, ou seja, 30 execuções e cerca de 11 h, contando o aquecimento de `WARMUP_SECONDS` antes de cada uma). A ordem é sorteada a cada repetição e cada execução começa com o HPA de volta a 2 réplicas, depois do cooldown e de um **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, que não gera CSV), para a referência do detector online não ser feita de silêncio. Se o HPA escalar no aquecimento, o log avisa e fica registrado em `results/warmup_log.csv`.
 2. Salva 1 CSV por execução em `datasets/`.
 3. Roda os 5 detectores em todos os CSVs.
 4. Calcula a estatística.
@@ -90,7 +90,7 @@ O experimento completo:
 Se for interrompido, rode de novo: as execuções já feitas são puladas.
 
 ### `make experiment-quick`
-Uma única execução do burst, cerca de 14 min. Serve para testar se o pipeline inteiro funciona antes de deixar o experimento longo rodando. Inclui os alertas do detector online (avaliados como `EWMA_online`, `IF_online`…), mas o HPA fica no modo A: para ver o HPA escalar pela anomalia, use `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B`. Rode `make clean` antes do experimento longo, senão este burst conta como repetição 1.
+Uma única execução do burst, cerca de 20 min (aquecimento incluído). Serve para testar se o pipeline inteiro funciona antes de deixar o experimento longo rodando. Inclui os alertas do detector online (avaliados como `EWMA_online`, `IF_online`…), mas o HPA fica no modo A: para ver o HPA escalar pela anomalia, use `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B`. Rode `make clean` antes do experimento longo, senão este burst conta como repetição 1.
 
 ### `make client-experiment`
 Mesmo que `make experiment`. É o nome antigo, mantido.
@@ -121,8 +121,20 @@ Testa o detector online **sem cluster**, "re-assistindo" um CSV ponto a ponto, c
 make online-replay CSV=datasets_qualificacao/burst_run1.csv
 ```
 
+Usa o `DETECTOR_SIGMA_FLOOR` do `.env`; para comparar, troque só naquele comando: `make online-replay CSV=… DETECTOR_SIGMA_FLOOR=0`.
+
+### `make check-inicio DIR=<pasta>`
+Conta, em cada CSV da pasta (padrão `datasets`), quantos alertas `online_*` cada detector deu **antes da 1ª janela anômala** do cenário, mostrando "alertas / pontos". O início da 1ª janela vem do gabarito (`ANOMALY_PHASES`), não é fixo. Nesse trecho não há anomalia, então todo alerta é falso alarme. Use depois de um piloto:
+
+```bash
+make check-inicio                    # Fase 1 (datasets/)
+make check-inicio DIR=datasets_hpa   # Fase 3
+```
+
+Critério ([PILOTOS.md](PILOTOS.md)): perto de 0% (alguns alertas isolados são esperados com K = 2). No piloto 2, antes do aquecimento, era 53–87%. Não roda carga nem mexe no cluster.
+
 ### `make detector-deploy`
-Reaplica o detector online no cluster com as configurações do `.env` (janela, K, algoritmos). Use depois de mudar `DETECTOR_*`. Se nada mudou, o pod não é reiniciado.
+Reaplica o detector online no cluster com as configurações do `.env` (janela, K, piso do σ, algoritmos). Use depois de mudar `DETECTOR_*`. Se nada mudou, o pod não é reiniciado.
 
 ### `make detector-config`
 Só atualiza o ConfigMap do detector. O `detector-deploy` já chama este comando.
@@ -161,7 +173,7 @@ Confere se o HPA está recebendo a métrica de anomalia. Mostra o valor de `anom
 ## Fase 3: HPA A × B × C
 
 ### `make hpa-experiment`
-Para cada repetição, roda as 3 cargas em cada modo de `HPA_MODES` (padrão A, B, C), ou seja, 9 execuções por repetição em ordem sorteada. Com REPS=10 são 90 execuções, cerca de 24 h. Gera:
+Para cada repetição, roda as 3 cargas em cada modo de `HPA_MODES` (padrão A, B, C), ou seja, 9 execuções por repetição em ordem sorteada. Com REPS=10 são 90 execuções, cerca de 32 h (24 h de carga + 8,25 h de aquecimento). Antes de cada execução, a espera pelas 2 réplicas, o cooldown e o aquecimento rodam sempre com o HPA no **modo A**; o modo da execução só é aplicado logo antes do roteiro, para todas começarem com 2 réplicas ([HPA.md](HPA.md), seção 4). Gera:
 - `results/hpa/hpa_results.csv`: tempo de reação, p95 nas anomalias, % acima de 500 ms, custo em pod·s, scale-ups falsos;
 - a estatística em `results/stats/phase3/`.
 

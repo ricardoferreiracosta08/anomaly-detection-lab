@@ -9,6 +9,15 @@ Detectores (todos não supervisionados; o label só é usado para avaliar):
   4. DBSCAN (min_samples=2·dim, eps=P90 da k-distância) — densidade global, multivariado
   5. AE     (MLP 4-3-2-3-4, limiar μ+2σ do erro)        — reconstrução, multivariado
 
+Tradução:
+
+• EWMA: Ele não sabe o que é uma falha. Ele só decora o ritmo normal da fila. Se o ritmo mudar de repente, ele desconfia.
+• Isolation Forest (IF): Ele não sabe quem é o vilão. Ele só repara que algumas pessoas são tão diferentes que são fáceis de isolar com poucas perguntas.
+• LOF: Ele só olha quem ficou no "vácuo", longe de qualquer grupinho de 20 pessoas.
+• DBSCAN: Ele cria os grupos por proximidade física. Quem sobrou sozinho no escuro, do lado de fora dos círculos, vira anomalia.
+• Autoencoder (AE): Você treina ele mostrando a festa rolando normalmente. Ele aprende a desenhar o "normal". Quando aparece algo diferente, ele erra o desenho porque nunca viu aquilo antes.
+
+
 Avaliação online (opcional): se o CSV tiver colunas online_<DET> (alertas
 exportados do online_detector via Prometheus), elas são avaliadas como <DET>_online.
 
