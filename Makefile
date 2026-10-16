@@ -165,6 +165,14 @@ down:
 server-up: up
 server-down: down
 
+## Fixa os nós do k3d nos núcleos CLUSTER_CPUS; k6 e análise usam LOADGEN_CPUS (vazio = sem fixação)
+cpu-pin:
+	@if [ -n "$(CLUSTER_CPUS)" ] && [ "$(ROLE)" != "client" ]; then \
+		ids=$$(docker ps -q --filter "label=k3d.cluster=$(CLUSTER_NAME)"); \
+		[ -n "$$ids" ] || { echo "✗ Cluster '$(CLUSTER_NAME)' não está rodando"; exit 1; }; \
+		docker update --cpuset-cpus "$(CLUSTER_CPUS)" $$ids >/dev/null \
+			&& echo "→ Cluster nos núcleos $(CLUSTER_CPUS); k6 e análise nos núcleos $(or $(LOADGEN_CPUS),livres)"; fi
+
 ## Garante que há cluster acessível: local/server → make up; client → vpn-check
 ensure-cluster:
 	@if [ "$(ROLE)" = "client" ]; then $(MAKE) -s vpn-check; \
@@ -309,6 +317,7 @@ test-shift:
 ## REPS repetições × 3 cenários (ordem aleatória, retomável) → datasets/ + results/k6/ → análise
 experiment:
 	@$(MAKE) -s ensure-cluster
+	@$(MAKE) -s cpu-pin
 	$(call check_analysis_image)
 	@bin/experiment.sh phase1
 	@$(MAKE) -s analyze
@@ -351,6 +360,7 @@ analyze: detect
 ## HPA_MODES × cenários × REPS (ordem aleatória, retomável) → results/hpa/hpa_results.csv
 hpa-experiment:
 	@$(MAKE) -s ensure-cluster
+	@$(MAKE) -s cpu-pin
 	$(call check_analysis_image)
 	@bin/experiment.sh phase3
 	@$(MAKE) -s hpa-analyze

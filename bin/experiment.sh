@@ -43,6 +43,8 @@ RANDOM_SEED="${RANDOM_SEED:-2026}"
 SCENARIOS="${SCENARIOS:-burst,rampup,shift}"; SCENARIOS="${SCENARIOS//,/ }"
 HPA_MODES="${HPA_MODES:-A,B,C}"; HPA_MODES="${HPA_MODES//,/ }"
 DOCKER_NET="${DOCKER_NET:-host}"
+# núcleos do k6 e da análise (vazio = sem fixação); o cluster fica em CLUSTER_CPUS via 'make cpu-pin'
+CPUSET=(); [ -n "${LOADGEN_CPUS:-}" ] && CPUSET=(--cpuset-cpus "$LOADGEN_CPUS")
 NS="${NAMESPACE:-anomaly-lab}"
 # ROLE=client: kubectl fala com o cluster da VPS pela VPN
 if [ -n "${KUBECONFIG_FILE:-}" ]; then
@@ -94,7 +96,7 @@ apply_mode() {   # apply_mode A|B|C|D
 }
 
 run_k6() {   # run_k6 <cenario> <arquivo_summary_no_container>
-    docker run --rm --network "$DOCKER_NET" \
+    docker run --rm --network "$DOCKER_NET" "${CPUSET[@]}" \
         -v "$PWD/k6-scripts:/scripts:ro" -v "$PWD/results:/results" \
         -e BASE_URL="$APP_URL" -e SUMMARY_FILE="$2" \
         "$K6_IMAGE" run --quiet --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
@@ -102,7 +104,7 @@ run_k6() {   # run_k6 <cenario> <arquivo_summary_no_container>
 }
 
 analysis() {   # roda um script do container de análise
-    docker run --rm --network "$DOCKER_NET" \
+    docker run --rm --network "$DOCKER_NET" "${CPUSET[@]}" \
         -v "$PWD/datasets:/datasets" -v "$PWD/datasets_hpa:/datasets_hpa" -v "$PWD/results:/results" \
         -e PROMETHEUS_URL="$PROM_URL" -e NAMESPACE="$NS" \
         -e DETECTOR_ALGOS="${DETECTOR_ALGOS:-EWMA,IF,LOF,DBSCAN,AE}" \
@@ -125,6 +127,10 @@ one_run() {   # one_run <modo|-> <cenario> <rep>
     log "══════ $key (${DURATION[$sc]}s) → $APP_URL ══════"
     start=$(date +%s)
     run_k6 "$sc" "$summ"
+    if [ ! -s "results${summ#/results}" ]; then   # k6 não terminou: execução inválida, será refeita
+        log "✗ $key inválida (k6 sem resumo; queda de conexão?). Será refeita na próxima chamada."
+        return
+    fi
     sleep 15   # último scrape + janela de rate()
     analysis export_metrics.py --scenario "$sc" --duration "${DURATION[$sc]}" --start "$start" --output "$csv"
     if [ "$mode" != "-" ]; then
