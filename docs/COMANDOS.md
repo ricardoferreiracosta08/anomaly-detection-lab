@@ -134,7 +134,7 @@ make check-inicio DIR=datasets_hpa   # Fase 3
 Critério ([PILOTOS.md](PILOTOS.md)): perto de 0% (alguns alertas isolados são esperados com K = 2). No piloto 2, antes do aquecimento, era 53–87%. Não roda carga nem mexe no cluster.
 
 ### `make detector-ciclo MIN=<minutos>`
-Mostra o **tempo de ciclo** do detector online no cluster (`detector_step_seconds`) nos últimos `MIN` minutos (padrão 70): média, p50, p95, p99 e a fração de ciclos acima de 1, 2 e 5 s. Mostra também os reinícios do pod do detector e o motivo do último término (por exemplo `OOMKilled`, falta de memória). O ciclo precisa ficar bem abaixo de `DETECTOR_STEP_SECONDS` (5 s); o comando marca ✓ se o p95 < 2,5 s. Rode logo depois de um piloto, com `MIN` cobrindo a duração dele. Os percentis vêm dos baldes do histograma (interpolados).
+Mostra o **tempo de ciclo** do detector online no cluster (`detector_step_seconds`) nos últimos `MIN` minutos (padrão 70): média, p50, p95, p99 e a fração de ciclos acima de 1, 2 e 5 s. Mostra também a **CPU do pod** `online-detector` (média, p95 e máximo, em núcleos; limite 0,5), os reinícios do pod e o motivo do último término (por exemplo `OOMKilled`, falta de memória). O `make experiment` e o `make hpa-experiment` rodam este comando sozinhos no fim e salvam em `results/detector_ciclo_<fase>.txt`. O ciclo precisa ficar bem abaixo de `DETECTOR_STEP_SECONDS` (5 s); o comando marca ✓ se o p95 < 2,5 s. Rode logo depois de um piloto, com `MIN` cobrindo a duração dele. Os percentis vêm dos baldes do histograma (interpolados).
 
 ### `make detector-deploy`
 Reaplica o detector online no cluster com as configurações do `.env` (janela, K, piso do σ, algoritmos). Use depois de mudar `DETECTOR_*`. Se nada mudou, o pod não é reiniciado.

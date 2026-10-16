@@ -58,13 +58,20 @@ O detector online é avaliado **em regime**: com a referência formada por carga
 
 ### A decisão de cada algoritmo
 
-Cada algoritmo produz uma **razão** (`anomaly_score`): **acima de 1 = alerta**.
+No online, cada algoritmo produz uma **razão** (`anomaly_score`): **acima de 1 = alerta**. No offline (Fase 1, `detectors.py`), cada um tem sua regra própria, aplicada à execução inteira.
 
-| Algoritmo | Razão | Equivale a |
-|---|---|---|
-| IF, LOF, AE, LSTM | (nota do ponto − μ) / (K·σ_ef), com μ e σ das notas da própria referência e σ_ef = máx(σ, piso·\|μ\|) | nota > μ + K·σ_ef (`DETECTOR_K_SIGMA`, K = 2) |
-| EWMA | \|média suavizada − μ\| / (3σ) da latência na referência (λ = 0,3) | fora de μ ± 3σ (K não se aplica) |
-| DBSCAN | distância ao ponto-núcleo mais próximo / eps (eps = P90 da k-distância na referência) | longe de qualquer região densa (K não se aplica) |
+| Algoritmo | Nota | Online: razão (alerta se > 1) | Offline: regra de alerta |
+|---|---|---|---|
+| EWMA | latência p95 suavizada (λ = 0,3) | \|média suavizada − μ\| / (3σ) da latência na referência (K não se aplica) | fora de μ ± **3σ**, com μ e σ dos primeiros 150 s |
+| IF | quão fácil é isolar o ponto | (nota − μ) / (K·σ_ef) das notas da referência | os **10%** mais estranhos (`contamination` = 0,1) |
+| LOF | densidade local × vizinhos (20) | (nota − μ) / (K·σ_ef) | os **10%** mais estranhos (`contamination` = 0,1) |
+| DBSCAN | distância ao ponto-núcleo mais próximo | distância / eps (eps = P90 da k-distância na referência; K não se aplica) | **ruído** (ponto fora de qualquer grupo; min_samples = 8, eps = P90) |
+| AE | erro de **reconstrução** do ponto | (erro − μ) / (K·σ_ef) dos erros da referência | erro > **μ + 2σ** dos erros da execução |
+| LSTM | erro de **previsão** do ponto a partir dos 12 anteriores | (erro − μ) / (K·σ_ef) dos erros da referência | erro > **μ + 2σ** dos erros de treino; os 12 primeiros pontos = normais |
+
+No online, σ_ef = máx(σ, piso·|μ|) (piso das notas, `DETECTOR_SIGMA_FLOOR` = 0,05) e K = 2 (`DETECTOR_K_SIGMA`). Antes disso, as 4 entradas são padronizadas pela referência com o piso nas entradas (`DETECTOR_FEATURE_FLOOR` = 0,01), exceto no EWMA, que usa a latência bruta.
+
+**Diferença importante:** no offline, IF e LOF **sempre** marcam 10% dos pontos, haja ou não anomalia; AE, LSTM, EWMA e DBSCAN marcam quantos passarem da régua. No online, os seis usam régua adaptativa (μ + K·σ da janela recente), sem proporção fixa.
 
 ### LSTM (6º detector)
 
@@ -154,6 +161,19 @@ Se a anomalia dura mais que o gap + a janela, ela entra na referência e o detec
 ### LSTM: pouco dado na janela
 
 A referência tem 60 pontos (5 min); com sequências de 12, sobram ~48 exemplos de treino. É pouco para uma rede neural: ela aprende o padrão de curto prazo, não sazonalidades nem regimes longos. A arquitetura pequena (16 unidades, 30 épocas) é proposital, para não decorar esses poucos exemplos. Aumentar a janela daria mais dados, mas deixaria o detector mais lento para se adaptar (decisão em aberto: janela do detector).
+
+### Custo da observação
+
+O detector online também é uma carga no sistema que ele observa:
+
+- **um pod para os 6:** o `online-detector` é um único programa Python. A cada 5 s ele faz **uma** consulta ao Prometheus (as 4 métricas do mesmo instante), calcula EWMA, IF, LOF, DBSCAN, AE e LSTM **em sequência** e publica os 6 alertas juntos, no fim do ciclo;
+- **disputa CPU com a aplicação:** o pod roda dentro do cluster, nos mesmos núcleos (`CLUSTER_CPUS`) que a app, com limite de 0,5 núcleo. A disputa é **igual nos 3 modos do HPA**, então não favorece nenhum; mas existe;
+- **o ciclo é único:** um detector pesado (LSTM, AE, nos ciclos de retreino) atrasa a publicação de **todos** os alertas, inclusive o do detector que o HPA usa no modo B. Entre os detectores não há atraso relativo (saem juntos), mas o atraso absoluto vale para todos;
+- **o laboratório é o pior caso:** em produção rodaria só o detector escolhido. Aqui rodam os 6, para avaliá-los sobre exatamente os mesmos dados ("mesma foto").
+
+**Medido:** em cada piloto e na Fase 1, a CPU do pod `online-detector` e o p95 de `detector_step_seconds` (`make detector-ciclo`; ao fim de `make experiment` e `make hpa-experiment` o resultado é salvo em `results/detector_ciclo_<fase>.txt`). No replay com 0,5 núcleo: ciclo médio 0,47 s, p95 1,13 s (seção 7).
+
+**Em aberto (decidir com o piloto 4):** na Fase 3, rodar **só** o detector do modo B (`DETECTOR_ALGOS=<HPA_B_DETECTOR>`, mais o do D se houver). A Fase 3 não calcula F1, então os outros 5 só gastariam CPU disputando com a app. Fica igual a produção e continua justo entre A, B e C.
 
 ### Atraso ao vivo
 

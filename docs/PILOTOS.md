@@ -169,7 +169,11 @@ Registrar aqui como Piloto 3, com a tabela do `check-inicio` e a do `hpa_results
 
 ## Piloto 4: correções do piloto 3 + LSTM (6 detectores)
 
-**O que mudou desde o piloto 3:** app reiniciada antes de cada execução, rampas sobrepostas na troca, piso nas entradas (0,01) e o LSTM como 6º detector (pedido do orientador). Junta num só piloto a validação das correções e a do LSTM: o LSTM não afeta os outros detectores (validado no replay) nem o HPA do B (que usa o IF).
+**O que mudou desde o piloto 3:** app reiniciada antes de cada execução, rampas sobrepostas na troca, piso nas entradas (0,01) e o LSTM como 6º detector (pedido do orientador). Junta num só piloto a validação das correções e a do LSTM. O LSTM não muda os **valores** dos outros detectores (validado no replay: 45/45 idênticos), mas divide com eles o **tempo e a CPU**:
+- os 6 rodam em sequência, no mesmo ciclo de 5 s do mesmo pod. Se o LSTM deixar o ciclo lento, **todos os alertas atrasam**, inclusive o do IF, que o modo B usa para escalar;
+- o pod do detector roda nos mesmos núcleos do cluster (`CLUSTER_CPUS`) que a aplicação; o treino do LSTM disputa CPU com ela (até o limite de 0,5 núcleo do pod).
+
+Por isso o p95 do ciclo e a CPU do pod (`make detector-ciclo`) estão no registro deste piloto, e o p95 no critério. O mesmo custo é salvo ao fim da Fase 1 (`results/detector_ciclo_phase1.txt`), para citar no método ("custo da observação", [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md), seção 5).
 
 **Antes de rodar, na VPS:** `git pull`; no `.env`, `DETECTOR_ALGOS=EWMA,IF,LOF,DBSCAN,AE,LSTM`, as variáveis `LSTM_*` e `DETECTOR_FEATURE_FLOOR=0.01`; `make build-analysis` e `make detector-deploy` (a linha de partida do `make detector-logs` deve listar os 6, `piso_σ=0.05` e `piso_entrada=0.01`).
 
@@ -180,7 +184,7 @@ make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C   # ≈ 1 h
 make check-inicio DIR=datasets_hpa
 cat results/warmup_log.csv
 cat results/hpa/hpa_results.csv
-make detector-ciclo MIN=70       # p95 do ciclo com os 6 detectores + reinícios do pod (1º teste do LSTM no cluster)
+make detector-ciclo MIN=70       # p95 do ciclo, CPU do pod online-detector e reinícios (1º teste do LSTM no cluster)
 ```
 No Grafana, painel **"Saúde do detector"**: o mesmo tempo de ciclo, ao longo das execuções.
 
@@ -196,4 +200,8 @@ Também observar, sem critério fixo: a latência de A, B e C fica comparável (
 
 **Opcional (piloto 4b, ≈ 20 min):** `make experiment-quick` para ver o LSTM **offline** no pipeline da Fase 1 (`LSTM` e `LSTM_online` no `detection_results.csv` e no relatório).
 
-Registrar aqui como Piloto 4.
+**Decisão que este piloto informa (em aberto):**
+- **Fase 1:** manter os 6 num pod só ("mesma foto" dos dados para todos) se o p95 do ciclo ficar bem abaixo de 5 s; separar em pods só se ele se aproximar do limite;
+- **Fase 3:** rodar só o detector do B (`DETECTOR_ALGOS=<HPA_B_DETECTOR>`), já que ela não calcula F1. O `make hpa-mode` agora só exige na lista o detector do modo aplicado.
+
+Registrar aqui como Piloto 4, com a saída do `make detector-ciclo` (p95 do ciclo **e** CPU do pod).
