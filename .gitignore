@@ -1,6 +1,10 @@
 # Configuração local (copie de .env.example)
 .env
+.env.*
+# o modelo SEMPRE vai para o repositório (mesmo que o .gitignore global ignore .env*)
+!.env.example
 kubeconfig*.yaml
+kubeconfig*.yaml.tmp
 
 # Gerados pelo experimento (os da qualificação ficam em *_qualificacao/, versionados)
 datasets/*

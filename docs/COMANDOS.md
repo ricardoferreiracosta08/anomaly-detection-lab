@@ -182,6 +182,9 @@ Testa pela VPN, com ✓ ou ✗ para cada item:
 - se o detector online está publicando;
 - se o kubectl alcança o cluster.
 
+### `make cpu-pin` (na VPS, topologia "tudo na VPS")
+Fixa os nós do k3d nos núcleos `CLUSTER_CPUS`. O k6 e a análise rodam nos núcleos `LOADGEN_CPUS`, assim a carga não rouba CPU do cluster. Com as variáveis vazias, não faz nada. O `make experiment` e o `make hpa-experiment` já chamam este comando.
+
 ### `make kubeconfig` (na VPS)
 Gera `kubeconfig-vpn.yaml`, o arquivo que deixa o notebook controlar o cluster da VPS (necessário para trocar o modo do HPA na Fase 3). Copie para o notebook e aponte `KUBECONFIG_FILE` no `.env` de lá.
 
@@ -197,15 +200,16 @@ Zera **tudo do lab** nesta máquina e pede confirmação antes. Remove:
 - o cluster;
 - as imagens Docker do lab (app, análise, k6, k3s, k3d);
 - os dados gerados;
-- os arquivos gerados (`k3d-config.yaml`, `kubeconfig-vpn.yaml`).
+- os arquivos gerados (`k3d-config.yaml`, `kubeconfig-vpn.yaml`);
+- os binários `k3d` e `kubectl` de `/usr/local/bin` (o `./setup.sh` reinstala).
 
-Remove também os binários k3d e kubectl de /usr/local/bin. Mantém o código, o .env e os dados da qualificação **Não** usa `docker system prune`: outros containers e imagens da máquina (por exemplo, os serviços que já rodam na VPS) não são tocados. Para não perguntar: `make purge CONFIRM=yes`. Depois, `make up` reconstrói tudo do zero.
+Mantém o código, o `.env` e os dados da qualificação. **Não** usa `docker system prune`: outros containers e imagens da máquina (por exemplo, os serviços que já rodam na VPS) não são tocados. Para não perguntar: `make purge CONFIRM=yes`. Depois, `./setup.sh && make up` reconstrói tudo do zero.
 
 | Comando | Cluster | Imagens | Dados gerados | Qualificação, .env, código |
 |---|---|---|---|---|
 | `make down` | apaga | mantém | mantém | mantém |
 | `make clean` | mantém | mantém | apaga | mantém |
-| `make purge` | apaga | apaga (só as do lab) | apaga | mantém |
+| `make purge` | apaga | apaga (só as do lab) e os binários k3d/kubectl | apaga | mantém |
 
 ---
 
@@ -230,4 +234,4 @@ make test-burst            # olhar "anomaly_level × réplicas" no Grafana
 make hpa-mode HPA_MODE=A   # volta ao normal
 ```
 
-**Experimento definitivo (VPS + notebook):** veja `docs/RUNBOOK_VPS_VPN.md`.
+**Experimento definitivo (VPS):** veja `docs/RUNBOOK_VPS_VPN.md`. Modos do HPA e Fase 3: `docs/HPA.md`.

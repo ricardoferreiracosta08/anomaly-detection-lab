@@ -60,6 +60,13 @@ else
     exit 1
 fi
 
+# k3d e kubectl são instalados em /usr/local/bin; no AlmaLinux o root às vezes não tem essa pasta no PATH
+case ":$PATH:" in *:/usr/local/bin:*) ;; *)
+    export PATH="$PATH:/usr/local/bin"
+    warn "/usr/local/bin não estava no PATH. Para o make achar o k3d, rode uma vez:"
+    echo "      echo 'export PATH=\$PATH:/usr/local/bin' >> ~/.bashrc && source ~/.bashrc" ;;
+esac
+
 # ── 2. k3d ─────────────────────────────────────────────────────────────────
 if command -v k3d &>/dev/null; then
     K3D_VER=$(k3d version | grep -oP 'v\d+\.\d+\.\d+' | head -1)

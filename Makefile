@@ -165,6 +165,7 @@ down:
 server-up: up
 server-down: down
 
+## Garante que há cluster acessível: local/server → make up; client → vpn-check
 ## Fixa os nós do k3d nos núcleos CLUSTER_CPUS; k6 e análise usam LOADGEN_CPUS (vazio = sem fixação)
 cpu-pin:
 	@if [ -n "$(CLUSTER_CPUS)" ] && [ "$(ROLE)" != "client" ]; then \
@@ -173,7 +174,6 @@ cpu-pin:
 		docker update --cpuset-cpus "$(CLUSTER_CPUS)" $$ids >/dev/null \
 			&& echo "→ Cluster nos núcleos $(CLUSTER_CPUS); k6 e análise nos núcleos $(or $(LOADGEN_CPUS),livres)"; fi
 
-## Garante que há cluster acessível: local/server → make up; client → vpn-check
 ensure-cluster:
 	@if [ "$(ROLE)" = "client" ]; then $(MAKE) -s vpn-check; \
 	elif ! k3d cluster list 2>/dev/null | grep -q "^$(CLUSTER_NAME) "; then \
@@ -396,9 +396,14 @@ vpn-check:
 ## (VPS) Exporta kubeconfig para o notebook usar pela VPN → kubeconfig-vpn.yaml
 kubeconfig:
 	$(call check_not_client)
+	@command -v k3d >/dev/null 2>&1 || { echo "✗ k3d não instalado nesta máquina. Rode primeiro: make server-up"; exit 1; }
+	@k3d cluster list 2>/dev/null | grep -q "^$(CLUSTER_NAME) " \
+		|| { echo "✗ Cluster '$(CLUSTER_NAME)' não existe nesta máquina. Rode primeiro: make server-up"; exit 1; }
 	@k3d kubeconfig get $(CLUSTER_NAME) \
-		| sed -E "s#server: https://[^:]+:[0-9]+#server: https://$(CLUSTER_HOST):$(KUBE_API_PORT)#" > kubeconfig-vpn.yaml
-	@chmod 600 kubeconfig-vpn.yaml
+		| sed -E "s#server: https://[^:]+:[0-9]+#server: https://$(CLUSTER_HOST):$(KUBE_API_PORT)#" > kubeconfig-vpn.yaml.tmp \
+		&& grep -q "server: https://$(CLUSTER_HOST):$(KUBE_API_PORT)" kubeconfig-vpn.yaml.tmp \
+		|| { rm -f kubeconfig-vpn.yaml.tmp; echo "✗ Não foi possível gerar o kubeconfig (veja: k3d kubeconfig get $(CLUSTER_NAME))"; exit 1; }
+	@mv kubeconfig-vpn.yaml.tmp kubeconfig-vpn.yaml && chmod 600 kubeconfig-vpn.yaml
 	@echo "✓ kubeconfig-vpn.yaml (server: https://$(CLUSTER_HOST):$(KUBE_API_PORT))"
 	@echo "  Copie para o notebook (ex.: scp) e defina KUBECONFIG_FILE=kubeconfig-vpn.yaml no .env de lá."
 
