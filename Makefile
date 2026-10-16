@@ -94,7 +94,7 @@ endef
 
 .PHONY: help setup up _up-cluster down server-up server-down ensure-cluster deploy \
         build build-analysis rebuild import-images \
-        detector-config detector-deploy detector-logs online-replay check-inicio \
+        detector-config detector-deploy detector-logs detector-ciclo online-replay check-inicio \
         ksm-deploy adapter-deploy hpa-mode hpa-status phase2-check \
         test-burst test-ramp test-shift \
         experiment experiment-quick detect k6-summary stats analyze \
@@ -273,6 +273,14 @@ detector-deploy: detector-config
 detector-logs:
 	$(call check_kubectl)
 	@kubectl -n $(NAMESPACE) logs deploy/online-detector -f --tail=50
+
+## Tempo de ciclo do detector no cluster (detector_step_seconds) nos últimos MIN minutos: make detector-ciclo MIN=70
+MIN ?= 70
+detector-ciclo:
+	$(call check_kubectl)
+	$(call check_analysis_image)
+	@kubectl -n $(NAMESPACE) get pods -l app=online-detector -o custom-columns='POD:.metadata.name,REINÍCIOS:.status.containerStatuses[0].restartCount,ÚLTIMO_TÉRMINO:.status.containerStatuses[0].lastState.terminated.reason'
+	@$(ANALYSIS_RUN) detector_ciclo.py --minutes $(MIN) --step $(DETECTOR_STEP_SECONDS)
 
 ## Testa o detector online SEM cluster, reproduzindo um CSV: make online-replay CSV=datasets/burst_run1.csv
 CSV ?= datasets/burst_run1.csv
@@ -519,6 +527,7 @@ help:
 	@echo "  Fase 2 (detector online)"
 	@echo "    make online-replay CSV=datasets_qualificacao/burst_run1.csv   testa sem cluster"
 	@echo "    make check-inicio DIR=datasets_hpa   alertas online antes da 1ª anomalia (falsos alarmes)"
+	@echo "    make detector-ciclo MIN=70   tempo de ciclo do detector (p95) e reinícios do pod"
 	@echo "    make detector-deploy | detector-logs"
 	@echo "    make hpa-mode HPA_MODE=B | hpa-status | phase2-check"
 	@echo ""
