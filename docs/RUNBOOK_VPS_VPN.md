@@ -82,10 +82,10 @@ Marque cada item **antes** do `make experiment` definitivo. Nenhum dado de pilot
 **Antes da Fase 1:**
 
 - [ ] **Pilotos limpos:** `make clean` (apaga `datasets/`, `datasets_hpa/` e `results/`; preserva `datasets_qualificacao/` e `results_qualificacao/`). Os pilotos ficam registrados em `docs/PILOTOS.md`.
-- [ ] **`.env` final:** `WARMUP_SECONDS` > 0 (padrão 330) e `DETECTOR_SIGMA_FLOOR=0.05` (decidido em 16/out; ver `docs/CHANGELOG.md`). Conferir com `grep -E '^(WARMUP_SECONDS|DETECTOR_)' .env`.
-- [ ] **Imagem e detector com a configuração final:** `make build-analysis && make detector-deploy`, e `make detector-logs` mostra `piso_σ=<valor decidido>` na linha de partida.
+- [ ] **`.env` final:** `WARMUP_SECONDS` > 0 (padrão 330), `DETECTOR_ALGOS=EWMA,IF,LOF,DBSCAN,AE,LSTM`, `DETECTOR_SIGMA_FLOOR=0.05` e `DETECTOR_FEATURE_FLOOR=0.01` (decididos em 16/out; ver `docs/CHANGELOG.md`). Conferir com `grep -E '^(WARMUP_SECONDS|DETECTOR_|LSTM_)' .env`.
+- [ ] **Imagem e detector com a configuração final:** `make build-analysis && make detector-deploy`, e `make detector-logs` mostra os 6 algoritmos, `piso_σ=0.05` e `piso_entrada=0.01` na linha de partida.
 - [ ] **`make selftest` passando** (9 testes, OK).
-- [ ] **Último piloto dentro do critério:** `make check-inicio` (ou `DIR=datasets_hpa`) com alertas antes da 1ª anomalia perto de 0% — rodar **antes** do `make clean`, que apaga os CSVs.
+- [ ] **Último piloto dentro do critério:** `make check-inicio` (ou `DIR=datasets_hpa`) com alertas antes da 1ª anomalia perto de 0%, e `results/warmup_log.csv` com `at_min=1` e `items_per_pod` parecido em todas as execuções (app reiniciada) — rodar **antes** do `make clean`, que apaga os CSVs.
 - [ ] **VPS sem carga anormal nos outros serviços:** `uptime` (load average baixo para o número de núcleos) e `docker stats --no-stream` sem container fora do lab consumindo CPU nos núcleos do cluster.
 
 **Antes da Fase 3 (além dos itens acima, exceto o `make clean`, que apagaria a Fase 1):**

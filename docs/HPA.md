@@ -85,17 +85,25 @@ Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro de
 
 ### Condição inicial: igual em todos os modos
 
-Antes de **cada** execução da Fase 3, o `bin/experiment.sh` faz sempre a mesma sequência:
+Antes de **cada** execução da Fase 3, o `bin/experiment.sh` faz sempre a mesma sequência (a Fase 1 faz a mesma, já no modo A):
 
 1. aplica o **modo A** (só CPU);
-2. espera as réplicas voltarem ao mínimo (2) e aplica o `COOLDOWN`;
-3. roda o **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, sem CSV), ainda no modo A;
-4. confere as réplicas e lê o `anomaly_level` do detector do B (`HPA_B_DETECTOR`), como o HPA o veria pelo Adapter;
-5. **só então** aplica o modo da execução (B, C ou D; no A nada muda) e começa o roteiro, sem espera.
+2. **reinicia a app** (`rollout restart deploy/fastapi-app`) e espera o rollout: pods novos, com os 100 itens da semente;
+3. espera as réplicas no mínimo (2) e aplica o `COOLDOWN`;
+4. roda o **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, sem CSV), ainda no modo A, terminando com uma descida de 30 s;
+5. 15 s antes dessa descida, confere as réplicas, lê o `anomaly_level` do detector do B (`HPA_B_DETECTOR`), como o HPA o veria pelo Adapter, e os **itens por pod** da app;
+6. **só então** aplica o modo da execução (B, C ou D; no A nada muda);
+7. o roteiro começa **30 s antes do fim do aquecimento**: o aquecimento desce (10 → 0 VUs) enquanto o roteiro sobe (0 → 10), e a carga total fica constante na troca.
+
+**Interruptores no `.env`** (para desligar uma correção sem mexer no código, se um piloto mostrar problema): `RESTART_APP=0` não reinicia a app; `WARMUP_OVERLAP=0` tira a sobreposição; `WARMUP_SECONDS=0` tira o aquecimento.
 
 **Por quê:** o aquecimento serve para o detector aprender "normal com carga" ([DETECTOR_ONLINE.md](DETECTOR_ONLINE.md)), mas a passagem "cluster parado → aquecimento" pode gerar alarmes. Se o aquecimento rodasse já no modo B, esses alarmes fariam o B escalar **antes** do roteiro, e as execuções do B começariam com mais réplicas que as do A e do C. Aquecendo sempre no modo A, **toda execução começa com 2 réplicas**, qualquer que seja o modo.
 
-**Registro:** `results/warmup_log.csv`, uma linha por execução: réplicas ao fim do aquecimento (`at_min` = 1 se no mínimo) e `anomaly_level_b`. Um `anomaly_level_b` ≥ 0,5 indica que o B escalaria logo que aplicado, ou seja, alarme residual do aquecimento; vale olhar junto com `false_scaleups`.
+**Por que reiniciar a app:** ela guarda os itens em memória, por pod, e cada POST acrescenta um; `/report`, `/search` e o GET leve percorrem todos. Sem reiniciar, cada execução herdava o estado das anteriores (piloto 3: 4.055 e 3.850 itens por pod, contra 100 da semente; memória no início A 82,7 → C 85,7 → B 89,1 MB, na ordem em que rodaram). Isso é um **viés de ordem**, que vale para as duas fases. O reinício também tira o "pod frio" dos 2 pods base, porque o aquecimento de 330 s vem depois dele.
+
+**Por que sobrepor as rampas:** os roteiros começam do zero (rampa de 30 s). Sem sobreposição, a carga caía e voltava na troca, e AE, DBSCAN e LOF alarmavam de 15 a 45 s em todas as execuções do piloto 3.
+
+**Registro:** `results/warmup_log.csv`, uma linha por execução: réplicas ao fim do aquecimento (`at_min` = 1 se no mínimo), `anomaly_level_b` e `items_per_pod` (ex.: `112;108`; devem ser parecidos em todas as execuções do mesmo cenário). Um `anomaly_level_b` ≥ 0,5 indica que o B escalaria logo que aplicado, ou seja, alarme residual do aquecimento; vale olhar junto com `false_scaleups`.
 
 ### Métricas
 

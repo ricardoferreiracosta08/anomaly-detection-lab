@@ -82,7 +82,7 @@ Roda **uma** execução do cenário contra o cluster e salva o resumo do k6 em `
 
 ### `make experiment`
 O experimento completo:
-1. Roda cada carga `REPS` vezes (padrão 10, ou seja, 30 execuções e cerca de 11 h, contando o aquecimento de `WARMUP_SECONDS` antes de cada uma). A ordem é sorteada a cada repetição e cada execução começa com o HPA de volta a 2 réplicas, depois do cooldown e de um **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, que não gera CSV), para a referência do detector online não ser feita de silêncio. Se o HPA escalar no aquecimento, o log avisa e fica registrado em `results/warmup_log.csv`.
+1. Roda cada carga `REPS` vezes (padrão 10, ou seja, 30 execuções e cerca de 11 h, contando o aquecimento de `WARMUP_SECONDS` antes de cada uma). A ordem é sorteada a cada repetição e cada execução começa com a **app reiniciada** (estado limpo, 100 itens por pod) e o HPA de volta a 2 réplicas, depois do cooldown e de um **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, que não gera CSV), para a referência do detector online não ser feita de silêncio. O roteiro começa 30 s antes do fim do aquecimento, que desce enquanto ele sobe (carga constante na troca). Se o HPA escalar no aquecimento, o log avisa e fica registrado em `results/warmup_log.csv`.
 2. Salva 1 CSV por execução em `datasets/`.
 3. Roda os 6 detectores em todos os CSVs.
 4. Calcula a estatística.
@@ -132,6 +132,9 @@ make check-inicio DIR=datasets_hpa   # Fase 3
 ```
 
 Critério ([PILOTOS.md](PILOTOS.md)): perto de 0% (alguns alertas isolados são esperados com K = 2). No piloto 2, antes do aquecimento, era 53–87%. Não roda carga nem mexe no cluster.
+
+### `make detector-ciclo MIN=<minutos>`
+Mostra o **tempo de ciclo** do detector online no cluster (`detector_step_seconds`) nos últimos `MIN` minutos (padrão 70): média, p50, p95, p99 e a fração de ciclos acima de 1, 2 e 5 s. Mostra também os reinícios do pod do detector e o motivo do último término (por exemplo `OOMKilled`, falta de memória). O ciclo precisa ficar bem abaixo de `DETECTOR_STEP_SECONDS` (5 s); o comando marca ✓ se o p95 < 2,5 s. Rode logo depois de um piloto, com `MIN` cobrindo a duração dele. Os percentis vêm dos baldes do histograma (interpolados).
 
 ### `make detector-deploy`
 Reaplica o detector online no cluster com as configurações do `.env` (janela, K, piso do σ, algoritmos). Use depois de mudar `DETECTOR_*`. Se nada mudou, o pod não é reiniciado.

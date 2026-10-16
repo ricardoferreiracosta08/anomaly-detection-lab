@@ -123,7 +123,12 @@ As janelas anômalas do burst começam aos 150 s, 305 s e 465 s após o início 
 - **aquecimento** (`WARMUP_SECONDS`, padrão 330 s): antes de cada execução, o `k6-scripts/warmup.js` roda a carga normal do cenário por uma referência inteira. O segurança passa a conhecer a loja **em funcionamento**;
 - **piso relativo do σ** (`DETECTOR_SIGMA_FLOOR`, padrão 0,05): σ_ef = máx(σ, piso·|μ|), para não se assustar com movimentos mínimos quando a loja está quase parada.
 
-Detalhes, VUs por cenário, o transiente de 30 s na troca aquecimento → roteiro e a validação do piso: [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md).
+**Ajustes depois do piloto 3 (implementados):**
+- a troca aquecimento → roteiro passou a ter as **rampas sobrepostas** (antes, a carga caía e voltava, e AE, DBSCAN e LOF alarmavam de 15 a 45 s);
+- **piso relativo nas entradas** (`DETECTOR_FEATURE_FLOOR`, 0,01): a memória quase constante fazia um salto de 0,25 MB virar ~50σ;
+- a **app é reiniciada** antes de cada execução: com o estado crescendo, cada execução encontrava uma app mais lenta (no painel "Memória por Pod", a base subia ~3 MB por execução).
+
+Detalhes, VUs por cenário e as validações: [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md).
 
 **Como conferir que continua corrigido:**
 - **No Grafana:** durante o aquecimento (o terminal mostra `→ aquecimento: …`), os scores sobem no começo e se acomodam abaixo de 1; nos primeiros 150 s do roteiro, alertas devem ser raros e isolados.

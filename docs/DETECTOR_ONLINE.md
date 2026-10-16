@@ -46,11 +46,11 @@ tempo ────────────────────────�
 | rampup | 10 | mix do `selectEndpoint()` com VUs 1–10 (~21% pesada, ~29% moderada, ~35% leve, 15% escrita); pausa de 0,5–2 s |
 | shift | 30 | 90% leve, 10% moderada; pausa de 0,8–1,2 s |
 
-Ordem: réplicas no mínimo → cooldown → **aquecimento** → conferência das réplicas → roteiro (sem espera entre o aquecimento e o roteiro). Na Fase 3, tudo isso acontece com o HPA no **modo A**; o modo da execução (B, C ou D) só é aplicado depois da conferência, logo antes do roteiro. Assim, um alarme na passagem "parado → aquecimento" não faz o B escalar antes da hora, e toda execução começa com 2 réplicas ([HPA.md](HPA.md), seção 4).
+Ordem: **app reiniciada** (estado limpo, 100 itens por pod) → réplicas no mínimo → cooldown → **aquecimento** (descida nos últimos 30 s) → conferências 15 s antes da descida → roteiro, que começa **30 s antes do fim do aquecimento**. Na Fase 3, tudo isso acontece com o HPA no **modo A**; o modo da execução (B, C ou D) só é aplicado depois da conferência, logo antes do roteiro. Assim, um alarme na passagem "parado → aquecimento" não faz o B escalar antes da hora, e toda execução começa com 2 réplicas ([HPA.md](HPA.md), seção 4).
 
-O aquecimento não gera CSV, não entra na avaliação e é registrado em `results/warmup_log.csv`: réplicas ao fim (`at_min`) e o `anomaly_level` do detector do B (`anomaly_level_b`, lido pelo Adapter como o HPA o veria). Se o HPA escalar durante o aquecimento, o log avisa que a execução começou fora da condição inicial.
+O aquecimento não gera CSV, não entra na avaliação e é registrado em `results/warmup_log.csv`: réplicas ao fim (`at_min`), o `anomaly_level` do detector do B (`anomaly_level_b`, lido pelo Adapter como o HPA o veria) e os itens por pod da app (`items_per_pod`). Se o HPA escalar durante o aquecimento, o log avisa que a execução começou fora da condição inicial.
 
-**Transiente conhecido:** os roteiros começam do zero, com uma rampa de 30 s até o nível normal (0 → 10 ou 0 → 30 VUs). Então, na passagem do aquecimento para o roteiro, a carga **cai** e volta a subir em 30 s. Esse vale é curto e fica dentro do trecho sem anomalia (a 1ª janela começa aos 150 s no burst e no shift, 175 s no rampup), mas pode gerar algum alerta isolado. O `make check-inicio` mede isso.
+**Transiente da troca (corrigido):** os roteiros começam do zero, com uma rampa de 30 s até o nível normal (0 → 10 ou 0 → 30 VUs). Na 1ª versão do aquecimento, a carga **caía** e voltava a subir na troca, e AE, DBSCAN e LOF alarmavam de 15 a 45 s em **todas** as execuções do piloto 3 (7 de 30 pontos; EWMA nenhum). Agora as rampas se sobrepõem: o aquecimento desce de VUs → 0 nos seus últimos 30 s enquanto o roteiro sobe de 0 → VUs (a 1ª rampa dele), e a carga total fica constante. Os roteiros e o gabarito não mudaram; o início da execução (`start`) continua sendo o início do roteiro. O `make check-inicio` confere.
 
 ### Escopo
 
@@ -80,6 +80,12 @@ Cada algoritmo produz uma **razão** (`anomaly_score`): **acima de 1 = alerta**.
 **Offline:** mesmo protocolo dos outros (treina na execução inteira); alerta se o erro > μ + 2σ dos erros de treino (mesmo critério do AE). Os primeiros 12 pontos não têm histórico e contam como normais (a 1ª janela anômala começa no ponto 30 ou depois).
 
 **Reprodutível:** `torch.manual_seed(42)`, algoritmos determinísticos e 1 thread de CPU (`torch.set_num_threads(1)`, que também limita o uso de CPU no pod). PyTorch só CPU. Código: `scripts/lstm_model.py`. Arquitetura **fixa**: só muda com base no replay da qualificação, com o motivo documentado, nunca olhando a Fase 1 definitiva.
+
+### Piso relativo nas entradas
+
+**O problema (piloto 3, alertas em 140–145 s no A):** antes de ir aos algoritmos, cada uma das 4 features é padronizada pela referência: (valor − μ) / σ. A memória fica quase constante numa execução (σ ≈ 0,005 MB). Um salto de 0,25 MB aos 135 s, provavelmente uma coleta de lixo do Python, virou ~**50 desvios** e os 4 multivariados alarmaram juntos, com taxa e latência normais. O único piso era técnico (σ < 1e-9 → 1). É o mesmo mecanismo do σ ≈ 0 das notas, em outro lugar.
+
+**A correção (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado):** σ_entrada = máx(σ, piso·|μ|), por feature. Com 1% de 82,7 MB = 0,83 MB, os 0,25 MB viram ~0,3σ: sem alarme. Latência, CPU e taxa têm σ real bem acima de 1% da média e quase não mudam. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). O `make selftest` (`test_feature_floor`) confere. Validação: [seção 8](#8-validação-do-piso-nas-entradas).
 
 ### Piso relativo do σ
 
@@ -249,7 +255,34 @@ Na 1ª versão, os ciclos com os dois retreinos juntos levavam 1,2–1,8 s em m�
 
 **Parâmetros:** nenhum foi mudado por causa desta validação (`LSTM_SEQ_LEN` = 12, `LSTM_HIDDEN` = 16, `LSTM_EPOCHS` = 30, `LSTM_RETRAIN` = 12, semente 42).
 
-## 8. Resultados preliminares (não conclusivos)
+## 8. Validação do piso nas entradas
+
+Replay dos 9 CSVs da qualificação com os 6 detectores e o piso das notas em 0,05, com piso nas entradas 0 e 0,01; F1 ponto a ponto, média das 3 repetições. Dados: [validacao/piso_entrada.csv](validacao/piso_entrada.csv) (com precisão, recall e alarmes) e [por execução](validacao/piso_entrada_por_execucao.csv).
+
+| Cenário | Detector | F1 piso 0 | F1 piso 0,01 | Diferença |
+|---|---|---|---|---|
+| burst | EWMA | 0,337 | 0,337 | 0 |
+| burst | IF | 0,462 | 0,462 | 0 |
+| burst | LOF | 0,391 | 0,382 | -0,009 |
+| burst | DBSCAN | 0,601 | 0,601 | 0 |
+| burst | AE | 0,614 | 0,597 | -0,017 |
+| burst | LSTM | 0,605 | 0,606 | 0 |
+| rampup | EWMA | 0,193 | 0,193 | 0 |
+| rampup | IF | 0,471 | 0,471 | 0 |
+| rampup | LOF | 0,500 | 0,500 | 0 |
+| rampup | DBSCAN | 0,527 | 0,527 | 0 |
+| rampup | AE | 0,514 | 0,517 | +0,003 |
+| rampup | LSTM | 0,453 | 0,451 | -0,002 |
+| shift | EWMA | 0,071 | 0,071 | 0 |
+| shift | IF | 0,152 | 0,152 | 0 |
+| shift | LOF | 0,210 | 0,205 | -0,005 |
+| shift | DBSCAN | 0,232 | 0,225 | -0,008 |
+| shift | AE | 0,337 | 0,365 | +0,028 |
+| shift | LSTM | 0,379 | 0,356 | -0,023 |
+
+**Leitura:** com piso 0, o replay é idêntico ao da validação do LSTM (54/54), ou seja, o código sem piso não mudou. Com 0,01, o F1 ficou igual em 10 das 18 combinações e mudou pouco nas outras, **nos dois sentidos** (de −0,023 a +0,028; média −0,002): AE melhora no shift (+0,028), LSTM e AE perdem um pouco no shift/burst (−0,023 e −0,017). EWMA, IF e LOF/DBSCAN no rampup não mudam. Não há perda sistemática; as variações estão no tamanho do ruído com N = 3. Ao contrário do piso das notas, este piso **age** com carga, em trechos em que alguma feature fica quase constante (na qualificação, sobretudo a memória). O benefício principal, o fim do alarme por salto de memória, só aparece ao vivo (piloto 4: `make check-inicio`).
+
+## 9. Resultados preliminares (não conclusivos)
 
 **Uma execução** (burst, run 1, N = 1). Não há IC nem teste com N = 1; serve só para ver o padrão.
 
@@ -263,7 +296,7 @@ Na 1ª versão, os ciclos com os dois retreinos juntos levavam 1,2–1,8 s em m�
 
 Leitura: o replay supera o offline em 4 de 5 detectores; ao vivo perde cerca de 0,2 de F1 em relação ao replay, quase toda em precisão (padrão de atraso). No replay dos 9 CSVs da qualificação (N = 3), o padrão foi parecido no burst e no rampup, mas no shift o online não ajudou: IF (0,24 → 0,15) e LOF (0,25 → 0,22) pioraram e o DBSCAN ficou praticamente igual (0,21 → 0,23), coerente com a limitação das anomalias longas. As 10 repetições dirão se isso se sustenta.
 
-## 9. Variáveis do `.env`
+## 10. Variáveis do `.env`
 
 | Variável | Padrão | O que controla |
 |---|---|---|
@@ -273,6 +306,7 @@ Leitura: o replay supera o offline em 4 de 5 detectores; ao vivo perde cerca de 
 | `DETECTOR_GAP` | `6` | pontos recentes fora da referência (30 s) |
 | `DETECTOR_K_SIGMA` | `2` | K do limiar μ + K·σ (IF, LOF, AE, LSTM); menor = mais alertas |
 | `DETECTOR_SIGMA_FLOOR` | `0.05` | piso relativo do σ: σ_ef = máx(σ, piso·\|μ\|) (IF, LOF, AE, LSTM); `0` = desligado |
+| `DETECTOR_FEATURE_FLOOR` | `0.01` | piso relativo na padronização das entradas: σ_entrada = máx(σ, piso·\|μ\|) (IF, LOF, DBSCAN, AE, LSTM); `0` = desligado |
 | `DETECTOR_LEVEL_POINTS` | `3` | alertas usados no `anomaly_level` |
 | `DETECTOR_AE_RETRAIN` | `12` | retreino do AE (passos) |
 | `LSTM_SEQ_LEN` | `12` | pontos anteriores usados na previsão (1 min) |
@@ -284,7 +318,7 @@ Depois de mudar qualquer uma: `make detector-deploy` (só recria o pod se a conf
 
 Fora do detector, mas ligado a ele: `WARMUP_SECONDS` (padrão `330`; `0` desliga), o aquecimento antes de cada execução, lido pelo `bin/experiment.sh`.
 
-## 10. Código
+## 11. Código
 
 - `scripts/online_detector.py`: o serviço (classe `OnlineDetector`) e o modo `--replay` (que também mostra o tempo por ciclo: média, p95, máximo).
 - `scripts/lstm_model.py`: a LSTM preditiva (usada pelo offline e pelo online).

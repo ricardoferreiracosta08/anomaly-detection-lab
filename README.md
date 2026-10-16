@@ -112,6 +112,7 @@ Cada `make` está explicado um a um em **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 | `make hpa-mode HPA_MODE=B` / `make phase2-check` | troca o modo / confere a métrica externa |
 | `make detector-logs` / `make online-replay` | logs do detector / teste sem cluster |
 | `make check-inicio DIR=datasets_hpa` | alertas online antes da 1ª anomalia (falsos alarmes do início) |
+| `make detector-ciclo MIN=70` | tempo de ciclo do detector no cluster (p95) e reinícios do pod |
 | `make vpn-check` / `make kubeconfig` | notebook → VPS / exporta o acesso da VPS (topologia B) |
 | `make cpu-pin` | fixa o cluster em `CLUSTER_CPUS` (topologia A; o `make experiment` já chama) |
 | `make selftest` | autoteste do código |
