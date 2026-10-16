@@ -40,6 +40,7 @@
 - **Documentação:**
   - `docs/HPA.md` (novo): como o HPA decide, os modos A/B/C/D, por que existe o C, pré-registro do detector do B, métricas e estatística da Fase 3;
   - `bin/experiment.sh`: enquanto espera as réplicas voltarem ao mínimo antes de cada execução, mostra o progresso a cada minuto (antes ficava mudo vários minutos depois de "HPA modo A"); a espera em si não mudou;
+  - **Grafana, dashboard "Detector Online & HPA":** painel de score em escala log com linha tracejada do limiar em 1; painel de alertas com 0 = "normal" (cinza) e 1 = "alerta" (vermelho);
   - `docs/RUNBOOK_VPS_VPN.md` e `docs/COMANDOS.md`: `make phase2-check` sempre precedido de `make hpa-mode HPA_MODE=B` (em outro modo a seção do HPA só mostra CPU e a checagem fica pela metade);
   - `README.md`: link para `docs/DETECTOR_ONLINE.md`, ao lado do `docs/HPA.md`;
   - `docs/RUNBOOK_VPS_VPN.md`: degustação do TL;DR virou sequência com "o que conferir" em cada passo, `make online-replay` para separar atraso do cluster de qualidade do detector, e o lembrete de decidir com o orientador, antes da rodada longa, a tolerância de atraso na avaliação do online;

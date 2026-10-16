@@ -290,15 +290,19 @@ data:
               },
               "custom": {
                 "fillOpacity": 10,
+                "scaleDistribution": {
+                  "type": "log",
+                  "log": 10
+                },
                 "thresholdsStyle": {
-                  "mode": "line+area"
+                  "mode": "dashed"
                 }
               },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
+                    "color": "transparent",
                     "value": null
                   },
                   {
@@ -317,7 +321,7 @@ data:
               "refId": "A"
             }
           ],
-          "description": "0 = ponto típico da janela de referência; 1 = exatamente no limiar dinâmico (μ+K·σ, |z−μ|>3σ no EWMA, distância>eps no DBSCAN)."
+          "description": "Escala log: a linha tracejada em 1 é o limiar dinâmico (μ+K·σ, |z−μ|>3σ no EWMA, distância>eps no DBSCAN); acima dela = alerta. Score 0 (ponto típico) não aparece em escala log."
         },
         {
           "title": "Alertas por detector",
@@ -335,19 +339,26 @@ data:
           "fieldConfig": {
             "defaults": {
               "color": {
-                "mode": "palette-classic"
+                "mode": "thresholds"
               },
               "custom": {
-                "fillOpacity": 10,
-                "thresholdsStyle": {
-                  "mode": "line+area"
-                }
+                "fillOpacity": 80,
+                "lineWidth": 0
               },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": { "text": "normal", "color": "gray", "index": 0 },
+                    "1": { "text": "alerta", "color": "red", "index": 1 }
+                  }
+                }
+              ],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "transparent",
+                    "color": "gray",
                     "value": null
                   },
                   {
