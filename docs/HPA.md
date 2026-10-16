@@ -78,7 +78,7 @@ Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro de
 
 1. Rode a Fase 1 completa (`make experiment`).
 2. Escolha o detector pelo **F1 online** (colunas `<DET>_online` em `results/detection_results.csv` e `results/stats/phase1/relatorio.md`), olhando os 3 cenários. O critério deve estar escrito **antes** de olhar os resultados da Fase 3.
-3. Fixe no `.env`: `HPA_B_DETECTOR=<escolhido>`. O `make hpa-mode` recusa um detector fora de `DETECTOR_ALGOS`.
+3. Fixe no `.env`: `HPA_B_DETECTOR=<escolhido>`. Pode ser qualquer um dos 6: EWMA, IF, LOF, DBSCAN, AE ou **LSTM** (o 6º, temporal). O `make hpa-mode` recusa um detector fora de `DETECTOR_ALGOS`. Se for o LSTM, confira antes no painel "Saúde do detector" que o p95 do ciclo está bem abaixo de 5 s (piloto 4, [PILOTOS.md](PILOTOS.md)).
 4. Não troque depois de ver a Fase 3. Trocar o detector após ver o resultado invalida o teste estatístico (seria escolher o que deu certo).
 
 ## 4. O que é medido em cada execução
@@ -168,7 +168,7 @@ Repita com `HPA_MODE=A` para ver a diferença. No fim, `make hpa-mode HPA_MODE=A
 |---|---|---|
 | `HPA_MODE` | `A` | modo aplicado no `make up` |
 | `HPA_MODES` | `A,B,C` | modos rodados pelo `make hpa-experiment` (acrescente `D` para a ablação) |
-| `HPA_B_DETECTOR` | `IF` | detector do modo B (troque pelo vencedor da Fase 1) |
+| `HPA_B_DETECTOR` | `IF` | detector do modo B (troque pelo vencedor da Fase 1; aceita EWMA, IF, LOF, DBSCAN, AE, LSTM) |
 | `HPA_D_DETECTOR` | `EWMA` | detector do modo D |
 | `HPA_C_CPU_TARGET` | `35` | alvo de CPU do modo C (%) |
 | `ANOMALY_TARGET` | `500m` | alvo do `anomaly_level` (0,5 = age com 2 de 3 alertas) |

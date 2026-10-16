@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-- **O quê:** um pod no cluster (`online-detector`) roda os **mesmos 5 algoritmos** da Fase 1 (EWMA, IF, LOF, DBSCAN, AE), mas de outro jeito: a cada 5 s, cada um é ajustado só no **passado recente** e decide se o ponto **de agora** é anômalo.
+- **O quê:** um pod no cluster (`online-detector`) roda os **mesmos 6 algoritmos** da Fase 1 (EWMA, IF, LOF, DBSCAN, AE, LSTM), mas de outro jeito: a cada 5 s, cada um é ajustado só no **passado recente** e decide se o ponto **de agora** é anômalo.
 - **Para quê:** é o que um sistema real consegue fazer (não dá para olhar o futuro) e é o que alimenta o HPA no modo B ([HPA.md](HPA.md)).
 - **Como é avaliado:** os alertas ficam gravados no Prometheus durante a carga, viram as colunas `online_<DET>` do CSV e são pontuados contra o mesmo gabarito (`label`) dos offline, aparecendo como `<DET>_online` nos resultados.
 - **Dois efeitos a ter em mente:** (1) o procedimento online pode **superar** o offline (sem *masking*, limiar adaptativo); (2) ao vivo, ele sofre **atraso**, que penaliza precisão e recall.
@@ -62,15 +62,30 @@ Cada algoritmo produz uma **razão** (`anomaly_score`): **acima de 1 = alerta**.
 
 | Algoritmo | Razão | Equivale a |
 |---|---|---|
-| IF, LOF, AE | (nota do ponto − μ) / (K·σ_ef), com μ e σ das notas da própria referência e σ_ef = máx(σ, piso·\|μ\|) | nota > μ + K·σ_ef (`DETECTOR_K_SIGMA`, K = 2) |
+| IF, LOF, AE, LSTM | (nota do ponto − μ) / (K·σ_ef), com μ e σ das notas da própria referência e σ_ef = máx(σ, piso·\|μ\|) | nota > μ + K·σ_ef (`DETECTOR_K_SIGMA`, K = 2) |
 | EWMA | \|média suavizada − μ\| / (3σ) da latência na referência (λ = 0,3) | fora de μ ± 3σ (K não se aplica) |
 | DBSCAN | distância ao ponto-núcleo mais próximo / eps (eps = P90 da k-distância na referência) | longe de qualquer região densa (K não se aplica) |
+
+### LSTM (6º detector)
+
+**O que acrescenta:** a dimensão temporal (previsão do próximo ponto). IF, LOF, DBSCAN e AE olham cada ponto isolado; a LSTM olha a **sequência** e aprende "o que costuma vir depois". Entrou por pedido do orientador, antes da Fase 1 definitiva. Referências: Malhotra et al., *Long Short Term Memory Networks for Anomaly Detection in Time Series*, ESANN 2015; Hundman et al., KDD 2018.
+
+**Como decide (online):**
+1. as 4 features são padronizadas com μ e σ da referência, como nos outros;
+2. a rede (1 camada LSTM com `LSTM_HIDDEN` = 16 unidades → camada linear com 4 saídas) é treinada na **referência** para prever cada ponto a partir dos `LSTM_SEQ_LEN` = 12 anteriores (1 min), com Adam por `LSTM_EPOCHS` = 30 épocas;
+3. a sequência de entrada do ponto atual são os 12 pontos **imediatamente anteriores** a ele (os do gap inclusive); a nota é o erro quadrático médio da previsão do ponto atual;
+4. a decisão usa o mesmo μ + K·σ_ef (com piso) das notas da referência, como IF, LOF e AE;
+5. retreina a cada `LSTM_RETRAIN` = 12 passos (1 min), como o AE, para caber no ciclo de 5 s.
+
+**Offline:** mesmo protocolo dos outros (treina na execução inteira); alerta se o erro > μ + 2σ dos erros de treino (mesmo critério do AE). Os primeiros 12 pontos não têm histórico e contam como normais (a 1ª janela anômala começa no ponto 30 ou depois).
+
+**Reprodutível:** `torch.manual_seed(42)`, algoritmos determinísticos e 1 thread de CPU (`torch.set_num_threads(1)`, que também limita o uso de CPU no pod). PyTorch só CPU. Código: `scripts/lstm_model.py`. Arquitetura **fixa**: só muda com base no replay da qualificação, com o motivo documentado, nunca olhando a Fase 1 definitiva.
 
 ### Piso relativo do σ
 
 **O problema:** com a referência quase constante (cluster ocioso), o σ das notas vai a ~0 e qualquer variação mínima vira uma razão enorme. No Grafana do piloto 2, o AE chegou a ~10⁵.
 
-**A correção (`DETECTOR_SIGMA_FLOOR` = **0,05**, decidido em 16/out; 0 = desligado):** o σ usado no limiar nunca é menor que uma fração da média: σ_ef = máx(σ, piso·|μ|). Vale para IF, LOF e AE; EWMA e DBSCAN não usam essa razão.
+**A correção (`DETECTOR_SIGMA_FLOOR` = **0,05**, decidido em 16/out; 0 = desligado):** o σ usado no limiar nunca é menor que uma fração da média: σ_ef = máx(σ, piso·|μ|). Vale para IF, LOF, AE e LSTM; EWMA e DBSCAN não usam essa razão.
 
 **Exemplo:** μ = 0,001, σ = 1e-7, e o ponto atual 2% acima da média (nota = 0,00102, diferença = 2e-5), com K = 2:
 - sem piso: 2e-5 / (2 × 1e-7) = **100** → alerta;
@@ -88,19 +103,19 @@ O AE é retreinado a cada `DETECTOR_AE_RETRAIN` passos (12 = 1 min), porque trei
 | `anomaly_alert{detector}` | 0 ou 1 a cada passo | vira a coluna `online_<DET>` do CSV e é avaliado (F1 etc.) |
 | `anomaly_level{detector}` | média dos últimos `DETECTOR_LEVEL_POINTS` alertas (3): 0; 0,33; 0,67; 1 | lido pelo HPA no modo B, via Prometheus Adapter |
 
-Os 5 publicam sempre. O HPA, quando está no modo B, lê **só** o `anomaly_level` do detector escolhido (`HPA_B_DETECTOR`).
+Os 6 publicam sempre. O HPA, quando está no modo B, lê **só** o `anomaly_level` do detector escolhido (`HPA_B_DETECTOR`).
 
 ## 2. Como os alertas viram resultado
 
 ```
-durante a carga:  app ──métricas──▶ Prometheus ──▶ pod online-detector (5 algoritmos)
+durante a carga:  app ──métricas──▶ Prometheus ──▶ pod online-detector (6 algoritmos)
                                         ▲                       │
                                         └──── alertas (5) ──────┘
 depois da carga:  Prometheus ──▶ CSV (métricas + label + online_*) ──▶ detectors.py ──▶ F1 dos 10
 ```
 
 1. No fim da carga, o `export_metrics.py` puxa do Prometheus as 4 métricas, o `label` (gabarito do roteiro do k6) e as 5 séries `anomaly_alert`, alinhadas nos mesmos instantes de 5 s.
-2. O `detectors.py` **roda** os 5 offline sobre as 4 métricas e **apenas pontua** as colunas `online_*`, que já são decisões tomadas ao vivo. As duas pontuações usam o mesmo código de precisão, recall, F1 e MTTD.
+2. O `detectors.py` **roda** os 6 offline sobre as 4 métricas e **apenas pontua** as colunas `online_*`, que já são decisões tomadas ao vivo. As duas pontuações usam o mesmo código de precisão, recall, F1 e MTTD.
 
 O HPA não participa disso: na Fase 1 ele fica no modo A (só CPU).
 
@@ -129,6 +144,10 @@ São os mesmos algoritmos, mas a pergunta é outra:
 ### Anomalias longas
 
 Se a anomalia dura mais que o gap + a janela, ela entra na referência e o detector **se acostuma**: para de alertar no meio dela. No shift, as janelas anômalas duram 150 s. Os pontos finais delas já têm parte da anomalia na referência.
+
+### LSTM: pouco dado na janela
+
+A referência tem 60 pontos (5 min); com sequências de 12, sobram ~48 exemplos de treino. É pouco para uma rede neural: ela aprende o padrão de curto prazo, não sazonalidades nem regimes longos. A arquitetura pequena (16 unidades, 30 épocas) é proposital, para não decorar esses poucos exemplos. Aumentar a janela daria mais dados, mas deixaria o detector mais lento para se adaptar (decisão em aberto: janela do detector).
 
 ### Atraso ao vivo
 
@@ -201,7 +220,36 @@ Replay dos 9 CSVs reais da qualificação (3 cenários × 3 repetições), com p
 
 **Decisão (16/out): piso = 0,05.** Motivo: no regime com carga ele não alterou o F1 (tabela acima), e com o cluster quase ocioso ele impede as razões de ~10⁵ que o piloto 2 mostrou. É uma proteção sem custo medido. Fixado antes do experimento definitivo e não reajustado depois.
 
-## 7. Resultados preliminares (não conclusivos)
+## 7. Validação do LSTM
+
+Os 9 CSVs reais da qualificação (3 cenários × 3 repetições), **sem cluster**: LSTM offline (`detectors.py`) e replay online (`online_detector.py`, piso 0,05), junto com os outros 5. F1 ponto a ponto, média das 3 repetições. Dados: [validacao/lstm_qualificacao.csv](validacao/lstm_qualificacao.csv) (com precisão e recall), [por execução](validacao/lstm_qualificacao_por_execucao.csv) e [tempo de ciclo](validacao/lstm_qualificacao_ciclo.csv).
+
+| Detector | burst offline | burst replay | rampup offline | rampup replay | shift offline | shift replay |
+|---|---|---|---|---|---|---|
+| EWMA | 0,431 | 0,337 | 0,425 | 0,193 | 0,059 | 0,071 |
+| IF | 0,467 | 0,462 | 0,184 | 0,471 | 0,242 | 0,152 |
+| LOF | 0,100 | 0,391 | 0,035 | 0,500 | 0,254 | 0,210 |
+| DBSCAN | 0,256 | 0,601 | 0,158 | 0,527 | 0,205 | 0,232 |
+| AE | 0,366 | 0,614 | 0,145 | 0,514 | 0,189 | 0,337 |
+| **LSTM** | **0,336** | **0,605** | **0,043** | **0,453** | **0,113** | **0,379** |
+
+**Leitura (N = 3, padrão, não conclusão):**
+- **Online (replay):** o LSTM fica entre os melhores. No burst, 0,605, empatado com AE (0,614) e DBSCAN (0,601). No rampup, 0,453, abaixo dos outros multivariados (0,47–0,53). No **shift**, 0,379, o **melhor dos 6**. É o cenário em que a anomalia está na *mudança de perfil*, e é onde a dimensão temporal mais ajuda.
+- **Offline:** fraco (0,04–0,34), como AE e LOF offline. Treinando na execução inteira, ele aprende os picos como "normal" (*masking*, seção 4) e o limiar μ + 2σ marca poucos pontos (precisão alta, recall baixo).
+- **Os outros 5 não mudaram:** offline idêntico ao `results_qualificacao/detection_results.csv` (45/45) e replay idêntico à validação do piso (45/45).
+
+**Tempo de ciclo** (replay com o mesmo limite do pod: 0,5 núcleo; 1.485 ciclos; 6 detectores):
+
+| Versão | média | p95 | máximo | limite |
+|---|---|---|---|---|
+| retreino do LSTM **defasado** 6 passos do AE (adotada) | 0,47 s | **1,13 s** | 3,92 s | 5 s |
+| 1ª versão: retreinos de AE e LSTM no mesmo ciclo (descartada) | 0,47 s | 1,27 s | 4,81 s | 5 s |
+
+Na 1ª versão, os ciclos com os dois retreinos juntos levavam 1,2–1,8 s em média e chegavam perto do limite. Defasar o retreino do LSTM meio período (o AE retreina num ciclo, o LSTM 6 ciclos depois) resolveu sem mudar `LSTM_RETRAIN` (12) nem a arquitetura. O PyTorch também passou a ser carregado na partida do serviço, não no 1º ciclo. **Memória:** pico de ~410 MiB no processo de validação; o limite do pod subiu de 384 Mi para 768 Mi (`k8s/detector/online-detector.yaml`) para não ser morto por falta de memória.
+
+**Parâmetros:** nenhum foi mudado por causa desta validação (`LSTM_SEQ_LEN` = 12, `LSTM_HIDDEN` = 16, `LSTM_EPOCHS` = 30, `LSTM_RETRAIN` = 12, semente 42).
+
+## 8. Resultados preliminares (não conclusivos)
 
 **Uma execução** (burst, run 1, N = 1). Não há IC nem teste com N = 1; serve só para ver o padrão.
 
@@ -215,26 +263,31 @@ Replay dos 9 CSVs reais da qualificação (3 cenários × 3 repetições), com p
 
 Leitura: o replay supera o offline em 4 de 5 detectores; ao vivo perde cerca de 0,2 de F1 em relação ao replay, quase toda em precisão (padrão de atraso). No replay dos 9 CSVs da qualificação (N = 3), o padrão foi parecido no burst e no rampup, mas no shift o online não ajudou: IF (0,24 → 0,15) e LOF (0,25 → 0,22) pioraram e o DBSCAN ficou praticamente igual (0,21 → 0,23), coerente com a limitação das anomalias longas. As 10 repetições dirão se isso se sustenta.
 
-## 8. Variáveis do `.env`
+## 9. Variáveis do `.env`
 
 | Variável | Padrão | O que controla |
 |---|---|---|
-| `DETECTOR_ALGOS` | `EWMA,IF,LOF,DBSCAN,AE` | algoritmos que rodam (aceitos: esses 5) |
+| `DETECTOR_ALGOS` | `EWMA,IF,LOF,DBSCAN,AE,LSTM` | algoritmos que rodam (aceitos: esses 6) |
 | `DETECTOR_STEP_SECONDS` | `5` | intervalo entre decisões |
 | `DETECTOR_WINDOW` | `60` | tamanho da referência (60 × 5 s = 5 min) |
 | `DETECTOR_GAP` | `6` | pontos recentes fora da referência (30 s) |
-| `DETECTOR_K_SIGMA` | `2` | K do limiar μ + K·σ (IF, LOF, AE); menor = mais alertas |
-| `DETECTOR_SIGMA_FLOOR` | `0.05` | piso relativo do σ: σ_ef = máx(σ, piso·\|μ\|) (IF, LOF, AE); `0` = desligado |
+| `DETECTOR_K_SIGMA` | `2` | K do limiar μ + K·σ (IF, LOF, AE, LSTM); menor = mais alertas |
+| `DETECTOR_SIGMA_FLOOR` | `0.05` | piso relativo do σ: σ_ef = máx(σ, piso·\|μ\|) (IF, LOF, AE, LSTM); `0` = desligado |
 | `DETECTOR_LEVEL_POINTS` | `3` | alertas usados no `anomaly_level` |
 | `DETECTOR_AE_RETRAIN` | `12` | retreino do AE (passos) |
+| `LSTM_SEQ_LEN` | `12` | pontos anteriores usados na previsão (1 min) |
+| `LSTM_HIDDEN` | `16` | unidades da camada LSTM |
+| `LSTM_EPOCHS` | `30` | épocas de treino (Adam, lote único) |
+| `LSTM_RETRAIN` | `12` | retreino da LSTM no online (passos); aumentar se o ciclo ficar lento |
 
 Depois de mudar qualquer uma: `make detector-deploy` (só recria o pod se a configuração mudou). Nunca mude durante um experimento.
 
 Fora do detector, mas ligado a ele: `WARMUP_SECONDS` (padrão `330`; `0` desliga), o aquecimento antes de cada execução, lido pelo `bin/experiment.sh`.
 
-## 9. Código
+## 10. Código
 
-- `scripts/online_detector.py`: o serviço (classe `OnlineDetector`) e o modo `--replay`.
+- `scripts/online_detector.py`: o serviço (classe `OnlineDetector`) e o modo `--replay` (que também mostra o tempo por ciclo: média, p95, máximo).
+- `scripts/lstm_model.py`: a LSTM preditiva (usada pelo offline e pelo online).
 - `scripts/prom_queries.py`: as consultas PromQL das 4 métricas (as mesmas do offline).
 - `scripts/export_metrics.py`: exporta as colunas `online_<DET>`.
 - `scripts/detectors.py`: pontua `online_<DET>` como `<DET>_online`.

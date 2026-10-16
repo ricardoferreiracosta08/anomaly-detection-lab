@@ -6,3 +6,4 @@ matplotlib>=3.8.0
 pandas>=2.1.0
 openpyxl>=3.1.0
 prometheus-client>=0.20.0
+# torch (só CPU) é instalado no Dockerfile, pelo índice https://download.pytorch.org/whl/cpu

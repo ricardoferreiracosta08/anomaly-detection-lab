@@ -1,0 +1,3 @@
+detectores,cpu_limite,ciclos,media_s,p95_s,max_s,memoria_max_MiB,retreino_lstm,observacao
+"EWMA,IF,LOF,DBSCAN,AE,LSTM",0.5 núcleo,1485,0.4682,1.1263,3.9215,411,"12 passos, defasado 6 do AE",replay dos 9 CSVs da qualificação; mesmo limite de CPU do pod
+"EWMA,IF,LOF,DBSCAN,AE,LSTM",0.5 núcleo,1485,0.4703,1.2727,4.8143,411,"12 passos, junto com o AE",1ª versão (descartada): retreinos de AE e LSTM no mesmo ciclo

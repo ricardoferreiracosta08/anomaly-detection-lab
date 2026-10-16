@@ -162,7 +162,7 @@ analysis() {   # roda um script do container de análise
     docker run --rm --network "$DOCKER_NET" "${CPUSET[@]}" \
         -v "$PWD/datasets:/datasets" -v "$PWD/datasets_hpa:/datasets_hpa" -v "$PWD/results:/results" \
         -e PROMETHEUS_URL="$PROM_URL" -e NAMESPACE="$NS" \
-        -e DETECTOR_ALGOS="${DETECTOR_ALGOS:-EWMA,IF,LOF,DBSCAN,AE}" \
+        -e DETECTOR_ALGOS="${DETECTOR_ALGOS:-EWMA,IF,LOF,DBSCAN,AE,LSTM}" \
         -e SLO_SECONDS="${SLO_SECONDS:-0.5}" \
         "$ANALYSIS_IMAGE" "$@"
 }

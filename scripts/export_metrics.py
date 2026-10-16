@@ -27,7 +27,7 @@ from prom_queries import queries, online_alert_query, NAMESPACE
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
 STEP = "5s"  # Granularidade de 5 segundos (match com scrape_interval)
 ONLINE_DETECTORS = [d.strip() for d in os.environ.get(
-    "DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE").split(",") if d.strip()]
+    "DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE,LSTM").split(",") if d.strip()]
 
 # ── Queries Prometheus (fonte única em prom_queries.py) ─────────────────────
 QUERIES = queries(NAMESPACE)

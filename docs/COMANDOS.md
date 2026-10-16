@@ -16,7 +16,7 @@ Confere Docker, k3d e kubectl, e instala o que faltar. Também gera o `k3d-confi
 
 ### `make selftest`
 Autoteste do código de análise, **sem cluster**, em cerca de 30 s. Confere:
-- os 5 detectores;
+- os 6 detectores (o LSTM inclusive: pico injetado, razão finita no online, determinismo);
 - o detector online;
 - o cálculo do IC (reproduz o slide 55);
 - as métricas do HPA;
@@ -78,13 +78,13 @@ Roda **uma** execução do cenário contra o cluster e salva o resumo do k6 em `
 
 ---
 
-## Fase 1: comparar os 5 detectores
+## Fase 1: comparar os 6 detectores
 
 ### `make experiment`
 O experimento completo:
 1. Roda cada carga `REPS` vezes (padrão 10, ou seja, 30 execuções e cerca de 11 h, contando o aquecimento de `WARMUP_SECONDS` antes de cada uma). A ordem é sorteada a cada repetição e cada execução começa com o HPA de volta a 2 réplicas, depois do cooldown e de um **aquecimento** (`WARMUP_SECONDS`, padrão 330 s: carga normal constante do cenário, que não gera CSV), para a referência do detector online não ser feita de silêncio. Se o HPA escalar no aquecimento, o log avisa e fica registrado em `results/warmup_log.csv`.
 2. Salva 1 CSV por execução em `datasets/`.
-3. Roda os 5 detectores em todos os CSVs.
+3. Roda os 6 detectores em todos os CSVs.
 4. Calcula a estatística.
 
 Se for interrompido, rode de novo: as execuções já feitas são puladas.
@@ -96,7 +96,7 @@ Uma única execução do burst, cerca de 20 min (aquecimento incluído). Serve p
 Mesmo que `make experiment`. É o nome antigo, mantido.
 
 ### `make detect`
-Só roda os 5 detectores sobre os CSVs que já estão em `datasets/` e gera `results/detection_results.csv`. Não roda carga nenhuma.
+Só roda os 6 detectores sobre os CSVs que já estão em `datasets/` e gera `results/detection_results.csv`. Não roda carga nenhuma.
 
 ### `make k6-summary`
 Junta os resumos do k6 de cada execução em `results/k6_summary.csv`: média, mediana, p90, p95, p99, requisições e erros, uma linha por execução.

@@ -106,3 +106,23 @@ Precisão / recall ao vivo: EWMA 0,25/0,20 · IF 0,36/0,60 · LOF 0,23/0,48 · D
 Também observar, sem critério fixo: o tempo de reação do B passa a ser **definido** (era indefinido); o custo (`pod_seconds`) do B fica próximo do A; o `results/warmup_log.csv` mostra `at_min=1` (HPA no mínimo ao fim do aquecimento) em todas as execuções e `anomaly_level_b` abaixo de 0,5 — se ficar ≥ 0,5, o B escalaria assim que aplicado e o falso alarme só mudou de lugar.
 
 Registrar aqui como Piloto 3, com a tabela do `check-inicio` e a do `hpa_results.csv`.
+
+## Piloto 4 (depois do piloto 3): LSTM, o 6º detector
+
+**O que mudou:** o LSTM entrou como 6º detector, offline e online (pedido do orientador). Antes de rodar, na VPS: `git pull`, `DETECTOR_ALGOS=EWMA,IF,LOF,DBSCAN,AE,LSTM` no `.env`, `make build-analysis` e `make detector-deploy` (a linha de partida do `make detector-logs` deve listar os 6).
+
+**Comandos:**
+```bash
+make clean                 # depois de registrar o piloto 3
+make experiment-quick      # Fase 1 com 1 burst, 6 detectores (offline e online)
+make check-inicio          # alertas antes da 1ª anomalia, LSTM incluído
+```
+No Grafana, painel **"Saúde do detector"**: o p95 do tempo de ciclo durante a execução.
+
+**Critério de sucesso (fixado antes de rodar):**
+- **p95 do ciclo bem abaixo de 5 s** (`DETECTOR_STEP_SECONDS`) com os 6 detectores. Se não ficar, aumentar `LSTM_RETRAIN` (retreino menos frequente) e registrar aqui;
+- **alertas iniciais do LSTM perto de zero** no `make check-inicio`, como os dos outros (alguns isolados com K = 2 são esperados);
+- `LSTM` e `LSTM_online` aparecem no `results/detection_results.csv` e no relatório da estatística.
+
+Registrar aqui como Piloto 4, com o p95 do ciclo, a tabela do `check-inicio` e o F1 dos 6 (N = 1, só padrão).
+

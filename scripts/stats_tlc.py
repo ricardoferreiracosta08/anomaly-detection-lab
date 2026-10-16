@@ -275,7 +275,7 @@ def phase1(det_path, k6_path, out):
     det = pd.read_csv(det_path)
     det["mttd_seconds"] = pd.to_numeric(det["mttd_seconds"].replace({"inf": np.inf}), errors="coerce")
     det["_rep"] = det["run"].str.extract(r"(\d+)")[0].astype(int)
-    order = ["EWMA", "IF", "LOF", "DBSCAN", "AE"]
+    order = ["EWMA", "IF", "LOF", "DBSCAN", "AE", "LSTM"]
     present = set(det.detector)
     dets = [d for b in order for d in (b, f"{b}_online") if d in present]
     dets += sorted(present - set(dets))

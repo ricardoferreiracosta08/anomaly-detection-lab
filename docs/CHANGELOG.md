@@ -66,6 +66,19 @@
 - **`make selftest`:** `test_sigma_floor` (referência constante + 2% → alarma sem piso, não alarma com piso; 50% alarma nos dois; o exemplo numérico da documentação) e `test_check_inicio`. Agora 9 testes.
 - **Escopo do detector online:** avaliado **em regime** (referência com carga normal); a partida a frio (pod recém-criado ou cluster vindo do zero) fica fora do escopo.
 
+## Novo (16/out): LSTM, o 6º detector
+
+**Por quê.** Pedido do orientador, antes da Fase 1 definitiva. Os outros multivariados (IF, LOF, DBSCAN, AE) olham cada ponto isolado; a LSTM **acrescenta a dimensão temporal (previsão do próximo ponto)**. Referências: Malhotra et al., *Long Short Term Memory Networks for Anomaly Detection in Time Series*, ESANN 2015; Hundman et al., KDD 2018.
+
+- **Modelo** (`scripts/lstm_model.py`, novo): LSTM preditiva não supervisionada. As 4 features padronizadas; os `LSTM_SEQ_LEN` = 12 pontos anteriores (1 min) preveem o seguinte; nota = erro quadrático médio da previsão. Arquitetura fixa: 1 camada LSTM (`LSTM_HIDDEN` = 16) → linear, Adam (lr 0,01), `LSTM_EPOCHS` = 30, lote único. Reprodutível: `torch.manual_seed(42)`, algoritmos determinísticos, 1 thread de CPU.
+- **Offline** (`detect_lstm` em `detectors.py`, entrada `"LSTM"` em `DETECTORS`): treina na execução inteira; alerta se erro > μ + 2σ dos erros de treino (critério do AE offline). Os primeiros 12 pontos, sem histórico, contam como normais (a 1ª janela anômala começa no ponto 30 ou depois).
+- **Online** (`_lstm` em `online_detector.py`): treina na janela de referência (com o gap); a sequência do ponto atual são os 12 pontos anteriores a ele; decisão pelo `_zratio` (mesmo K e mesmo piso do σ de IF, LOF e AE). Retreina a cada `LSTM_RETRAIN` = 12 passos, **defasado 6 passos do AE**: na 1ª versão os dois retreinavam no mesmo ciclo e o máximo chegava a 4,8 s. O PyTorch é carregado na partida do serviço. O `--replay` passou a mostrar o tempo por ciclo (média, p95, máximo).
+- **Imagem de análise:** PyTorch 2.5.1 **só CPU** (`--index-url https://download.pytorch.org/whl/cpu`, no `scripts/Dockerfile`). Tamanho: **579 MB → 1,38 GB**.
+- **Pod do detector:** memória `requests` 192 Mi → 384 Mi e `limits` 384 Mi → 768 Mi (pico de ~410 MiB medido no replay com os 6 detectores).
+- **Integração:** `DETECTOR_ALGOS=EWMA,IF,LOF,DBSCAN,AE,LSTM` (padrão no `.env.example`, no `experiment.sh`, no `export_metrics.py` e no `online_detector.py`); `LSTM_SEQ_LEN`, `LSTM_HIDDEN`, `LSTM_EPOCHS`, `LSTM_RETRAIN` no `.env.example`, no ConfigMap (e no hash do pod), no `make online-replay` e no `make detect` (via `ANALYSIS_RUN`); a validação do `DETECTOR_ALGOS` aceita `LSTM`, então `HPA_B_DETECTOR`/`HPA_D_DETECTOR` podem ser `LSTM`. `stats_tlc.py`: LSTM na ordem dos detectores; a paleta já tinha a 6ª cor (verde `#008300`) e `LSTM_online` a herda. Grafana e Prometheus Adapter agrupam por `detector` e pegam o LSTM sem mudança; o `export_metrics.py` exporta `online_LSTM` sozinho.
+- **`make selftest`:** `test_lstm_offline` (pico injetado detectado), `test_lstm_online` (razão finita), `test_lstm_determinism` (mesma semente → mesmo resultado, offline e online). Agora 12 testes.
+- **Validação** (9 CSVs da qualificação, sem cluster; [validacao/lstm_qualificacao.csv](validacao/lstm_qualificacao.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#7-validação-do-lstm)): F1 do replay online do LSTM = 0,605 (burst), 0,453 (rampup), **0,379 (shift, o melhor dos 6)**; offline fraco (0,04–0,34, *masking*). Ciclo com 6 detectores e 0,5 núcleo: média 0,47 s, **p95 1,13 s**, máximo 3,92 s (limite 5 s). Os 5 detectores antigos ficaram idênticos (offline 45/45 com a qualificação, replay 45/45 com a validação do piso). Nenhum parâmetro do LSTM foi mudado por causa da validação.
+
 ## Corrigido
 
 | Problema | Efeito | Correção |

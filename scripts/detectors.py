@@ -1,5 +1,5 @@
 """
-detectors.py — Implementação dos 5 detectores + avaliação fatorial
+detectors.py — Implementação dos 6 detectores + avaliação fatorial
 PPGCC/UFMA — Ricardo F. Costa — 2026
 
 Detectores (todos não supervisionados; o label só é usado para avaliar):
@@ -8,6 +8,8 @@ Detectores (todos não supervisionados; o label só é usado para avaliar):
   3. LOF    (n_neighbors=20)        — densidade local, multivariado
   4. DBSCAN (min_samples=2·dim, eps=P90 da k-distância) — densidade global, multivariado
   5. AE     (MLP 4-3-2-3-4, limiar μ+2σ do erro)        — reconstrução, multivariado
+  6. LSTM   (1 camada, 16 unidades, seq=12, limiar μ+2σ) — previsão do próximo ponto,
+            multivariado e TEMPORAL (Malhotra et al., ESANN 2015; Hundman et al., KDD 2018)
 
 Tradução:
 
@@ -16,6 +18,7 @@ Tradução:
 • LOF: Ele só olha quem ficou no "vácuo", longe de qualquer grupinho de 20 pessoas.
 • DBSCAN: Ele cria os grupos por proximidade física. Quem sobrou sozinho no escuro, do lado de fora dos círculos, vira anomalia.
 • Autoencoder (AE): Você treina ele mostrando a festa rolando normalmente. Ele aprende a desenhar o "normal". Quando aparece algo diferente, ele erra o desenho porque nunca viu aquilo antes.
+• LSTM: Ele assiste à fila andando e aprende a adivinhar quem vem a seguir. Enquanto o ritmo é o de sempre, acerta; quando acontece algo fora do roteiro, erra o palpite — e o tamanho do erro é a desconfiança.
 
 
 Avaliação online (opcional): se o CSV tiver colunas online_<DET> (alertas
@@ -288,6 +291,37 @@ def detect_autoencoder(
 
 
 # =============================================================================
+# Detector 6: LSTM preditiva
+# =============================================================================
+
+def detect_lstm(features: np.ndarray, k: float = 2.0) -> np.ndarray:
+    """
+    LSTM preditiva (Malhotra et al., ESANN 2015; Hundman et al., KDD 2018).
+
+    Mesmo protocolo offline dos outros: padroniza e treina na execução inteira;
+    cada ponto t é previsto a partir dos LSTM_SEQ_LEN pontos anteriores e o erro
+    quadrático médio da previsão é o score. Limiar: erro > μ + k·σ dos erros de
+    treino (mesmo critério do AE offline). Arquitetura e semente em lstm_model.py.
+
+    Os primeiros LSTM_SEQ_LEN pontos não têm histórico para a previsão: contam
+    como normais (0). Em todos os cenários a 1ª janela anômala começa no ponto
+    30 ou depois (150 s ou 175 s), então essa regra não esconde anomalia do gabarito.
+
+    Returns:
+        array binário (0=normal, 1=anomalia)
+    """
+    from lstm_model import LSTMPredictor, SEQ_LEN, sequences
+    X = StandardScaler().fit_transform(features)
+    pred = np.zeros(len(X), dtype=int)
+    xs, ys = sequences(X, SEQ_LEN)
+    if len(xs) < 2:
+        return pred
+    err = LSTMPredictor(X.shape[1]).fit(X).errors(xs, ys)
+    pred[SEQ_LEN:] = (err > err.mean() + k * err.std()).astype(int)
+    return pred
+
+
+# =============================================================================
 # Registro dos detectores (ordem fixa = ordem das tabelas/figuras)
 # =============================================================================
 
@@ -297,6 +331,7 @@ DETECTORS = {
     "LOF":    ("LOF (n_neighbors=20, contam=0.1)",  lambda d: detect_lof(d["features"], n_neighbors=20, contamination=0.1)),
     "DBSCAN": ("DBSCAN (min_samples=8, eps=P90)",   lambda d: detect_dbscan(d["features"])),
     "AE":     ("Autoencoder (4-3-2-3-4, μ+2σ)",     lambda d: detect_autoencoder(d["features"])),
+    "LSTM":   ("LSTM preditiva (16, seq=12, μ+2σ)", lambda d: detect_lstm(d["features"])),
 }
 
 
@@ -469,7 +504,7 @@ def compute_factorial_effects(results: list[DetectionResult]) -> dict:
     """
     Calcula efeitos fatoriais para cada métrica.
     Fator A: padrão de carga (3 níveis: burst, rampup, shift)
-    Fator B: detector (EWMA, IF, LOF, DBSCAN, AE [+ *_online])
+    Fator B: detector (EWMA, IF, LOF, DBSCAN, AE, LSTM [+ *_online])
 
     Retorna médias por fator e diferenças.
     """

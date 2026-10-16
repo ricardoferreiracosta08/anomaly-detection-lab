@@ -1,7 +1,7 @@
 # Anomaly Detection Lab — Kubernetes (100% Docker + IaC)
 
 Detecção de anomalias em Kubernetes baseada em observabilidade contínua:
-comparação experimental de 5 detectores (Fase 1), detector online no cluster (Fase 2)
+comparação experimental de 6 detectores (Fase 1), detector online no cluster (Fase 2)
 e HPA proativo avaliado contra o HPA reativo (Fase 3).
 
 **Dissertação de Mestrado — PPGCC/UFMA — Ricardo F. Costa — 2026**
@@ -16,7 +16,7 @@ Docker 24+. `./setup.sh` instala k3d e kubectl. k6, Python, scikit-learn e o det
 cp .env.example .env        # ROLE=local, CLUSTER_HOST=localhost
 make up                     # cluster + app + Prometheus + Grafana + detector online + adapter + HPA (modo A)
 make selftest               # autoteste do código de análise (sem cluster, ~30 s)
-make experiment-quick       # 1 rodada burst + 5 detectores + estatística (~20 min)
+make experiment-quick       # 1 rodada burst + 6 detectores + estatística (~20 min)
 ```
 
 Grafana em `http://localhost:5090`, com os dashboards **Anomaly Detection Lab** e **Detector Online & HPA**.
@@ -38,8 +38,8 @@ O passo a passo completo, com o teste da VPN e a solução de problemas, está e
 
 | Fase | O que faz | Comando | Saída |
 |---|---|---|---|
-| 1. Comparar | 3 cenários × `REPS` (10), ordem aleatória, 5 detectores offline | `make experiment` | `results/detection_results.csv`, `results/k6_summary.csv`, `results/stats/phase1/` |
-| 2. Detector online | 5 detectores em janela deslizante no cluster, publicando `anomaly_score`, `anomaly_alert` e `anomaly_level` | `make up` (já incluso) | Prometheus/Grafana; colunas `online_<DET>` nos CSVs |
+| 1. Comparar | 3 cenários × `REPS` (10), ordem aleatória, 6 detectores offline | `make experiment` | `results/detection_results.csv`, `results/k6_summary.csv`, `results/stats/phase1/` |
+| 2. Detector online | 6 detectores em janela deslizante no cluster, publicando `anomaly_score`, `anomaly_alert` e `anomaly_level` | `make up` (já incluso) | Prometheus/Grafana; colunas `online_<DET>` nos CSVs |
 | 3. Avaliar o HPA | modos A, B e C × 3 cenários × `REPS` | `make hpa-experiment` | `results/hpa/hpa_results.csv`, `results/stats/phase3/` |
 
 **Modos do HPA** (`make hpa-mode HPA_MODE=X`). Como o HPA decide, por que existe o modo C, as métricas e a estatística da Fase 3: **[docs/HPA.md](docs/HPA.md)**. Como o detector online funciona (Fase 2): **[docs/DETECTOR_ONLINE.md](docs/DETECTOR_ONLINE.md)**. O que cada painel do Grafana mostra e como ler: **[docs/GRAFANA.md](docs/GRAFANA.md)**.
@@ -60,12 +60,16 @@ O passo a passo completo, com o teste da VPN e a solução de problemas, está e
 | LOF | densidade local | 4 | n_neighbors = 20, contamination = 0,1 |
 | DBSCAN | densidade global | 4 | ruído = anomalia; min_samples = 8, eps = P90 da k-distância |
 | AE | reconstrução neural | 4 | MLP 4-3-2-3-4; erro > μ + 2σ |
+| LSTM | previsão neural (temporal) | 4 | LSTM de 1 camada (16 unidades) prevê o ponto a partir dos 12 anteriores (1 min); erro da previsão > μ + 2σ |
 
 • EWMA: Ele não sabe o que é uma falha. Ele só decora o ritmo normal da fila. Se o ritmo mudar de repente, ele desconfia.
 • Isolation Forest (IF): Ele não sabe quem é o vilão. Ele só repara que algumas pessoas são tão diferentes que são fáceis de isolar com poucas perguntas.
 • LOF: Ele só olha quem ficou no "vácuo", longe de qualquer grupinho de 20 pessoas.
 • DBSCAN: Ele cria os grupos por proximidade física. Quem sobrou sozinho no escuro, do lado de fora dos círculos, vira anomalia.
 • Autoencoder (AE): Você treina ele mostrando a festa rolando normalmente. Ele aprende a desenhar o "normal". Quando aparece algo diferente, ele erra o desenho porque nunca viu aquilo antes.
+• LSTM: Ele assiste à fila andando e aprende a adivinhar quem vem a seguir. Enquanto o ritmo é o de sempre, acerta; quando acontece algo fora do roteiro, erra o palpite — e o tamanho do erro é a desconfiança.
+
+**LSTM (6º detector, pedido do orientador):** acrescenta a dimensão temporal (previsão do próximo ponto). Os outros multivariados olham cada ponto isolado; a LSTM olha a sequência (Malhotra et al., ESANN 2015; Hundman et al., KDD 2018). Arquitetura fixa e pequena, semente 42, PyTorch só CPU. Limitação: no online, a janela de 5 min (60 pontos, ~48 sequências) é pouco dado para treinar uma rede. Validação nos dados da qualificação: [docs/DETECTOR_ONLINE.md](docs/DETECTOR_ONLINE.md#7-validação-do-lstm).
 
 **Offline (Fase 1):** cada detector analisa o CSV inteiro da execução.
 

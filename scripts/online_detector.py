@@ -25,6 +25,10 @@ Piso relativo do DP (DETECTOR_SIGMA_FLOOR): σ_ef = máx(σ, piso·|μ|). Com a 
 quase constante (cluster ocioso, σ ≈ 0), sem piso qualquer variação mínima vira uma
 razão enorme (piloto 2: ~10⁵). Piso 0 = desligado.
 EWMA: |z − μ| > L·σ (μ, σ da referência). DBSCAN: distância ao núcleo mais próximo > eps.
+LSTM (lstm_model.py): treinada na referência para prever o próximo ponto; nota = erro
+da previsão do ponto atual a partir dos LSTM_SEQ_LEN pontos anteriores a ele; decisão
+pelo mesmo μ + K·σ_ef (com piso) do IF, LOF e AE. Retreina a cada LSTM_RETRAIN passos,
+defasada meio período do AE (os dois treinos nunca no mesmo ciclo).
 
 Modos:
   python online_detector.py                          # serviço (Prometheus → /metrics)
@@ -67,7 +71,9 @@ CFG = dict(
     sigma_floor=env("DETECTOR_SIGMA_FLOOR", 0.05, float),  # σ_ef = máx(σ, piso·|μ|); 0 = desligado
     level_points=env("DETECTOR_LEVEL_POINTS", 3, int),
     ae_retrain=env("DETECTOR_AE_RETRAIN", 12, int),  # retreina o AE a cada 12 passos (1 min)
-    algos=[a.strip().upper() for a in env("DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE").split(",") if a.strip()],
+    lstm_seq_len=env("LSTM_SEQ_LEN", 12, int),       # pontos anteriores usados na previsão (1 min)
+    lstm_retrain=env("LSTM_RETRAIN", 12, int),       # retreina a LSTM a cada 12 passos (1 min)
+    algos=[a.strip().upper() for a in env("DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE,LSTM").split(",") if a.strip()],
     target=env("TARGET_APP", "fastapi"),
 )
 
@@ -79,10 +85,13 @@ CFG = dict(
 class OnlineDetector:
     """Mantém a janela e calcula, por detector, (score_ratio, alert)."""
 
-    def __init__(self, algos, window=60, gap=6, k_sigma=2.0, level_points=3, ae_retrain=12, sigma_floor=0.0):
+    def __init__(self, algos, window=60, gap=6, k_sigma=2.0, level_points=3, ae_retrain=12, sigma_floor=0.0,
+                 lstm_seq_len=12, lstm_retrain=12):
         self.algos = list(algos)
         self.window, self.gap, self.k = window, gap, k_sigma
         self.sigma_floor = sigma_floor
+        self.lstm_seq_len, self.lstm_retrain = lstm_seq_len, lstm_retrain
+        self.lstm_model, self.lstm_age = None, 0
         self.min_ref = max(20, window // 3)
         self.hist = collections.deque(maxlen=window + gap + 1)
         self.last_alerts = {a: collections.deque(maxlen=level_points) for a in self.algos}
@@ -151,6 +160,25 @@ class OnlineDetector:
         err_c = float(((self.ae_model.predict(xc) - xc) ** 2).mean())
         return self._zratio(err_r, err_c)
 
+    def _lstm(self, H, mu, sd, n_ref):
+        """Prevê o ponto atual a partir dos L anteriores (gap incluído); treino só na referência."""
+        from lstm_model import LSTMPredictor, sequences
+        L = self.lstm_seq_len
+        Z = (H - mu) / sd                       # mesma padronização dos outros (μ, σ da referência)
+        ref_z = Z[len(H) - 1 - self.gap - n_ref: len(H) - 1 - self.gap]
+        if len(ref_z) < L + 2 or len(Z) < L + 1:
+            return 0.0
+        if self.lstm_model is None or self.lstm_age >= self.lstm_retrain:
+            first = self.lstm_model is None
+            self.lstm_model = LSTMPredictor(Z.shape[1], seq_len=L).fit(ref_z)
+            # defasado meio período do AE: os dois retreinos nunca caem no mesmo ciclo de 5 s
+            self.lstm_age = self.lstm_retrain // 2 if first else 0
+        self.lstm_age += 1
+        xs, ys = sequences(ref_z, L)
+        err_r = self.lstm_model.errors(xs, ys)
+        err_c = float(self.lstm_model.errors(Z[-1 - L:-1][None, :, :], Z[-1:])[0])
+        return self._zratio(err_r, err_c)
+
     # ── passo ─────────────────────────────────────────────────────────────
     def step(self, x):
         """Recebe um ponto [lat_p95, cpu, mem, req_rate]; devolve {algo: (ratio, alert, level)}."""
@@ -169,7 +197,7 @@ class OnlineDetector:
         Xr, xc = (ref - mu) / sd, ((cur - mu) / sd).reshape(1, -1)
         fns = {"EWMA": lambda: self._ewma(ref, cur), "IF": lambda: self._if(Xr, xc),
                "LOF": lambda: self._lof(Xr, xc), "DBSCAN": lambda: self._dbscan(Xr, xc),
-               "AE": lambda: self._ae(Xr, xc)}
+               "AE": lambda: self._ae(Xr, xc), "LSTM": lambda: self._lstm(H, mu, sd, len(ref))}
         for a in self.algos:
             try:
                 ratio = float(fns[a]())
@@ -202,8 +230,12 @@ def serve(cfg):
                        buckets=[0.05, 0.1, 0.25, 0.5, 1, 2, 5])
 
     q = queries()
+    if "LSTM" in cfg["algos"]:   # carrega o PyTorch já na partida, não no 1º ciclo
+        import lstm_model
+        lstm_model._t()
     det = OnlineDetector(cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"],
-                         cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"])
+                         cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"],
+                         cfg["lstm_seq_len"], cfg["lstm_retrain"])
     start_http_server(cfg["port"])
     log.info("online_detector em :%s | algos=%s | janela=%s gap=%s K=%s piso_σ=%s | Prometheus=%s",
              cfg["port"], cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"], cfg["sigma_floor"],
@@ -241,7 +273,8 @@ def serve(cfg):
 def replay(cfg, path, out_path=None):
     rows = list(csv.DictReader(open(path)))
     det = OnlineDetector(cfg["algos"], cfg["window"], cfg["gap"], cfg["k_sigma"],
-                         cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"])
+                         cfg["level_points"], cfg["ae_retrain"], cfg["sigma_floor"],
+                         cfg["lstm_seq_len"], cfg["lstm_retrain"])
 
     def num(v):
         try:
@@ -249,9 +282,11 @@ def replay(cfg, path, out_path=None):
         except (TypeError, ValueError):
             return float("nan")
 
-    records = []
+    records, step_s = [], []
     for r in rows:
+        t0 = time.perf_counter()
         out = det.step([num(r.get(f)) for f in FEATURES])
+        step_s.append(time.perf_counter() - t0)
         rec = {"offset_seconds": r.get("offset_seconds"), "label": r.get("label")}
         for a, (ratio, alert, level) in out.items():
             rec[f"score_{a}"], rec[f"alert_{a}"], rec[f"level_{a}"] = round(ratio, 4), alert, round(level, 3)
@@ -272,6 +307,9 @@ def replay(cfg, path, out_path=None):
         rc = tp / (tp + fn) if tp + fn else 0.0
         f1 = 2 * pr * rc / (pr + rc) if pr + rc else 0.0
         print(f"  {a:<8} {pr:6.3f} {rc:7.3f} {f1:6.3f} {int(p.sum()):8d}")
+    st = np.array(step_s)
+    print(f"  tempo por ciclo ({len(cfg['algos'])} detectores): média {st.mean():.3f} s · "
+          f"p95 {np.percentile(st, 95):.3f} s · máx {st.max():.3f} s (limite: {cfg['step']:.0f} s)")
     return records
 
 

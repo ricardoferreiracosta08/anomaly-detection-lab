@@ -23,6 +23,11 @@ export
 ROLE        ?= local
 # .env antigo sem a variável: piso do σ do detector online no padrão (0 = desligado)
 DETECTOR_SIGMA_FLOOR ?= 0.05
+# .env antigo sem as variáveis do LSTM (6º detector): padrões fixos da arquitetura
+LSTM_SEQ_LEN ?= 12
+LSTM_HIDDEN  ?= 16
+LSTM_EPOCHS  ?= 30
+LSTM_RETRAIN ?= 12
 DOCKER_NET  := host
 STAMP_DIR   := .stamps
 RENDER      := bin/render.sh
@@ -39,6 +44,7 @@ endif
 ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
 	-v $(CURDIR)/datasets:/datasets -v $(CURDIR)/datasets_hpa:/datasets_hpa \
 	-v $(CURDIR)/results:/results -e PROMETHEUS_URL=$(PROM_URL) -e NAMESPACE=$(NAMESPACE) \
+	-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) \
 	$(ANALYSIS_IMAGE)
 
 # =============================================================================
@@ -233,8 +239,8 @@ import-images:
 
 ## ConfigMap do detector a partir do .env (só as chaves do detector)
 detector-config:
-	@for d in $$(echo "$(DETECTOR_ALGOS)" | tr ',' ' '); do case "$$d" in EWMA|IF|LOF|DBSCAN|AE) ;; \
-		*) echo "✗ DETECTOR_ALGOS: '$$d' inválido (aceitos: EWMA, IF, LOF, DBSCAN, AE)"; exit 1 ;; esac; done
+	@for d in $$(echo "$(DETECTOR_ALGOS)" | tr ',' ' '); do case "$$d" in EWMA|IF|LOF|DBSCAN|AE|LSTM) ;; \
+		*) echo "✗ DETECTOR_ALGOS: '$$d' inválido (aceitos: EWMA, IF, LOF, DBSCAN, AE, LSTM)"; exit 1 ;; esac; done
 	$(call check_kubectl)
 	@kubectl -n $(NAMESPACE) create configmap online-detector-config \
 		--from-literal=PROMETHEUS_URL=$(PROMETHEUS_INCLUSTER_URL) \
@@ -248,14 +254,16 @@ detector-config:
 		--from-literal=DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) \
 		--from-literal=DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) \
 		--from-literal=DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
+		--from-literal=LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) --from-literal=LSTM_HIDDEN=$(LSTM_HIDDEN) \
+		--from-literal=LSTM_EPOCHS=$(LSTM_EPOCHS) --from-literal=LSTM_RETRAIN=$(LSTM_RETRAIN) \
 		--from-literal=TARGET_APP=$(TARGET_APP) \
 		--dry-run=client -o yaml | kubectl apply -f - >/dev/null
 	@echo "→ ConfigMap online-detector-config atualizado"
 
-## Detector online no cluster (score dos 5 detectores no Prometheus/Grafana)
+## Detector online no cluster (score dos 6 detectores no Prometheus/Grafana)
 ## Idempotente: o hash da configuração vai numa anotação do pod; o Kubernetes só
 ## recria o pod se a configuração (ou a imagem, via make rebuild) mudou.
-DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_SIGMA_FLOOR)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
+DETECTOR_CONFIG_HASH = $(shell printf '%s' "$(PROMETHEUS_INCLUSTER_URL)|$(NAMESPACE)|$(DETECTOR_PORT)|$(DETECTOR_ALGOS)|$(DETECTOR_STEP_SECONDS)|$(DETECTOR_WINDOW)|$(DETECTOR_GAP)|$(DETECTOR_K_SIGMA)|$(DETECTOR_SIGMA_FLOOR)|$(DETECTOR_LEVEL_POINTS)|$(DETECTOR_AE_RETRAIN)|$(LSTM_SEQ_LEN)|$(LSTM_HIDDEN)|$(LSTM_EPOCHS)|$(LSTM_RETRAIN)|$(TARGET_APP)" | cksum | cut -d' ' -f1)
 detector-deploy: detector-config
 	@DETECTOR_CONFIG_HASH=$(DETECTOR_CONFIG_HASH) $(RENDER) k8s/detector/online-detector.yaml | kubectl apply -f - >/dev/null
 	@echo "→ Detector online aplicado (algos: $(DETECTOR_ALGOS); config $(DETECTOR_CONFIG_HASH))"
@@ -274,6 +282,7 @@ online-replay:
 		-e DETECTOR_ALGOS=$(DETECTOR_ALGOS) -e DETECTOR_WINDOW=$(DETECTOR_WINDOW) \
 		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) -e DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) \
 		-e DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) -e DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
+		-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) -e LSTM_RETRAIN=$(LSTM_RETRAIN) \
 		$(ANALYSIS_IMAGE) online_detector.py --replay /in/$(notdir $(CSV)) \
 		--replay-out /results/replay_$(notdir $(CSV))
 
@@ -360,7 +369,7 @@ experiment-quick:
 
 client-experiment: experiment
 
-## 5 detectores sobre datasets/ → results/detection_results.csv
+## 6 detectores sobre datasets/ → results/detection_results.csv
 detect:
 	$(call check_datasets)
 	$(call check_analysis_image)
@@ -500,7 +509,7 @@ help:
 	@echo "    make status | logs      pods, HPA (com modo) e consumo"
 	@echo "    make down               destrói o cluster"
 	@echo ""
-	@echo "  Fase 1 (comparação dos 5 detectores)"
+	@echo "  Fase 1 (comparação dos 6 detectores)"
 	@echo "    make experiment         REPS × 3 cenários, ordem aleatória, retomável + análise"
 	@echo "    make experiment-quick   1 rodada burst (~14 min)"
 	@echo "    make detect | stats     detectores sobre datasets/ | IC + t de Student"

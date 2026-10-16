@@ -13,6 +13,8 @@ Verifica:
   6. o piso relativo do σ do detector online (DETECTOR_SIGMA_FLOOR)
   7. a contagem de alertas antes da 1ª anomalia (check_inicio.py)
   8. a estatística com N = 1 (pairwise sem teste t)
+  9. o LSTM (6º detector): offline acha um pico injetado, online devolve razão
+     finita, e duas execuções com a mesma semente dão o mesmo resultado
 """
 import json
 import logging
@@ -66,7 +68,7 @@ class T(unittest.TestCase):
     def test_online_detector(self):
         from online_detector import OnlineDetector
         t, lab, X = burst_series()
-        det = OnlineDetector(["EWMA", "IF", "LOF", "DBSCAN", "AE"], window=60, gap=6, k_sigma=2.0)
+        det = OnlineDetector(["EWMA", "IF", "LOF", "DBSCAN", "AE", "LSTM"], window=60, gap=6, k_sigma=2.0)
         alerts = {a: [] for a in det.algos}
         for x in X:
             out = det.step(list(x))
@@ -78,6 +80,44 @@ class T(unittest.TestCase):
         # 1ª rajada (150–185 s): ao menos um detector deve alarmar dentro dela
         first = (t >= 150) & (t <= 185)
         self.assertTrue(any(np.array(alerts[a])[first].any() for a in det.algos))
+
+    def test_lstm_offline(self):
+        # pico injetado numa série sintética suave: a LSTM offline alarma dentro dele
+        import detectors as d
+        rng = np.random.default_rng(3)
+        n = 145
+        t = np.arange(n)
+        base = np.column_stack([0.02 + 0.002 * np.sin(t / 6), 15 + 1.5 * np.sin(t / 8),
+                                210 + np.sin(t / 10), 10 + np.sin(t / 7)]) + rng.normal(0, 0.05, (n, 4)) * [0.001, 0.3, 0.2, 0.2]
+        spike = (t >= 90) & (t <= 95)
+        X = base.copy()
+        X[spike] += [0.6, 70, 40, 70]
+        pred = d.detect_lstm(X)
+        self.assertEqual(len(pred), n)
+        from lstm_model import SEQ_LEN
+        self.assertEqual(int(pred[:SEQ_LEN].sum()), 0)   # sem histórico = normal
+        self.assertTrue(pred[spike].any())
+
+    def test_lstm_online(self):
+        # o ciclo online com LSTM roda e devolve razão finita
+        from online_detector import OnlineDetector
+        t, lab, X = burst_series()
+        det = OnlineDetector(["LSTM"], window=60, gap=6, k_sigma=2.0, sigma_floor=0.05)
+        ratios = [det.step(list(x))["LSTM"][0] for x in X]
+        self.assertTrue(all(np.isfinite(ratios)))
+        self.assertTrue(any(r != 0.0 for r in ratios))   # passou do aquecimento e decidiu
+
+    def test_lstm_determinism(self):
+        # duas execuções com a mesma semente → mesmo resultado (offline e online)
+        import detectors as d
+        from online_detector import OnlineDetector
+        t, lab, X = burst_series()
+        self.assertTrue(np.array_equal(d.detect_lstm(X), d.detect_lstm(X)))
+        runs = []
+        for _ in range(2):
+            det = OnlineDetector(["LSTM"], window=60, gap=6, k_sigma=2.0)
+            runs.append([det.step(list(x))["LSTM"][0] for x in X[:90]])
+        self.assertEqual(runs[0], runs[1])
 
     def test_sigma_floor(self):
         # referência constante (cluster ocioso, σ ≈ 0) + ponto 2% acima da média:

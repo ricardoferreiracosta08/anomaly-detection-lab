@@ -61,7 +61,7 @@ make clean                               # apaga datasets/, datasets_hpa/ e resu
 **4. Rodadas longas (dentro do tmux), só depois do [checklist](#checklist-antes-do-experimento-definitivo)**
 
 ```bash
-make experiment                          # Fase 1 (≈ 11 h: 8 h + 2,75 h de aquecimento): 5 detectores × 3 cargas × 10
+make experiment                          # Fase 1 (≈ 11 h: 8 h + 2,75 h de aquecimento): 6 detectores × 3 cargas × 10
 #   → escolher o detector em results/stats/phase1/relatorio.md e fixar HPA_B_DETECTOR no .env
 make hpa-mode HPA_MODE=B && make phase2-check   # o B recebe a anomalia? (o hpa-experiment troca o modo sozinho a cada execução)
 make hpa-experiment                      # Fase 3 (≈ 32 h: 24 h + 8,25 h de aquecimento): HPA A × B × C × 3 cargas × 10
