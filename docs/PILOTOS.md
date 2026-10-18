@@ -11,6 +11,7 @@ Registro das execuções de **teste** (antes do experimento definitivo), com a c
 | 1 | `make experiment-quick` (Fase 1, burst, N = 1) | o online ao vivo perde ~0,2 de F1 para o replay, quase tudo em precisão | investigar atraso e falsos alarmes; tolerância de atraso em aberto |
 | 2 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | o B "ganhou" em latência porque escalou **antes** dos picos por alarmes falsos: +48% de custo, tempo de reação indefinido. Confirmado: 53–87% de alertas nos 150 s iniciais, sem anomalia | aquecimento + piso do σ; métrica "réplicas no início do pico" |
 | 3 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, com aquecimento (modo A) e piso 0,05 | alertas iniciais caíram de 53–87% para 0–30%; B sem scale-up falso, reage 10 s antes do A com +1% de custo. Mas B e C tiveram latência **pior** que A (p95 nos picos 975 e 1.200 ms × 465 ms) | confirmado: transiente da troca (15–45 s), app com 40× mais itens (viés de ordem) e salto da memória virando ~50σ (140–145 s no A). **Decidido:** reiniciar a app, sobrepor as rampas, piso nas entradas |
+| 4 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, configuração final + LSTM (6 detectores) | ciclo p95 0,48 s, CPU do detector ~0,03 núcleo, 0 reinícios; app com 100 itens em todas; latência de A, B e C comparável de novo (414–539 ms); A com **0** alertas iniciais nos 6, mas B e C com 7–30% | 1º episódio de latência logo após a troca (nas 3, sistemático) e 2º num pod só (ruído do ambiente). **Decidido:** acomodação de 60 s na avaliação da Fase 1 (`EVAL_SKIP_SECONDS`) |
 
 ---
 
@@ -95,7 +96,8 @@ Precisão / recall ao vivo: EWMA 0,25/0,20 · IF 0,36/0,60 · LOF 0,23/0,48 · D
 | Reiniciar a app antes de cada execução | estado crescendo: 4.055 e 3.850 itens por pod contra 100 (piloto 3) | **implementado** (16/out) |
 | Rampas sobrepostas na troca aquecimento → roteiro | alertas de 15–45 s em AE, DBSCAN e LOF (piloto 3) | **implementado** (16/out) |
 | Piso relativo nas entradas (`DETECTOR_FEATURE_FLOOR` = 0,01) | salto de 0,25 MB na memória virava ~50σ (piloto 3) | **implementado** (16/out) |
-| Tolerância de atraso na avaliação do online | perda de precisão ao vivo × replay (piloto 1) | em aberto (orientador) |
+| Acomodação inicial de 60 s na avaliação da Fase 1 (`EVAL_SKIP_SECONDS`) | oscilação de latência sistemática logo após a troca aquecimento → roteiro (piloto 4) | **implementado** (16/out) |
+| Tolerância de atraso na avaliação do online | perda de precisão ao vivo × replay (piloto 1) | adotada (aguarda orientador); valor e implementação pendentes |
 
 ## Piloto 3: plano e critério (fixados antes de rodar)
 
@@ -205,3 +207,76 @@ Também observar, sem critério fixo: a latência de A, B e C fica comparável (
 - **Fase 3:** rodar só o detector do B (`DETECTOR_ALGOS=<HPA_B_DETECTOR>`), já que ela não calcula F1. O `make hpa-mode` agora só exige na lista o detector do modo aplicado.
 
 Registrar aqui como Piloto 4, com a saída do `make detector-ciclo` (p95 do ciclo **e** CPU do pod).
+
+## Piloto 4 — correções do piloto 3 + LSTM (16/out/2026, ~10:50–12:04)
+
+**Comando:** `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`. Configuração: 6 detectores (`DETECTOR_ALGOS` com LSTM), piso das notas 0,05, piso nas entradas 0,01, aquecimento de 330 s com rampas sobrepostas, app reiniciada antes de cada execução, `HPA_B_DETECTOR=IF`. Ordem sorteada: **A → C → B**.
+
+**Condição inicial (`results/warmup_log.csv`):** as 3 execuções com 2 réplicas (`at_min=1`), `anomaly_level` do IF = 0,000 e **100;100 itens por pod**. ✓ (no piloto 3: ~4.000 por pod)
+
+**Custo do detector (`make detector-ciclo`, 65 min, 780 ciclos):** ciclo médio 0,235 s, p50 0,202 s, **p95 0,478 s**, p99 0,862 s; acima de 2 s: 0,1%; acima de 5 s: 0%. CPU do pod `online-detector`: média **0,032** núcleo, p95 0,045, máximo 0,054 (limite 0,5). **0 reinícios**, sem `OOMKilled`. ✓
+
+**Alertas antes da 1ª anomalia (`make check-inicio DIR=datasets_hpa`, 30 pontos):**
+
+| Execução | AE | DBSCAN | EWMA | IF | LOF | LSTM |
+|---|---|---|---|---|---|---|
+| A_burst_run1 | **0/30** | **0/30** | **0/30** | **0/30** | **0/30** | **0/30** |
+| B_burst_run1 | 7/30 | 2/30 | 0/30 | 4/30 | 5/30 | 8/30 |
+| C_burst_run1 | 8/30 | 6/30 | 7/30 | 4/30 | 6/30 | 9/30 |
+| **total** | 17% | 9% | 8% | 9% | 12% | 19% |
+
+**HPA (`results/hpa/hpa_results.csv`, N = 1):**
+
+| Métrica | A (só CPU) | B (CPU + IF) | C (CPU 35%) |
+|---|---|---|---|
+| `reaction_time_s` | 48,3 s | 41,7 s | **38,3 s** |
+| `ready_time_s` | 55,0 s | 51,7 s | **45,0 s** |
+| `p95_anom_ms` | 539 ms | 512 ms | **414 ms** |
+| `slo_viol_anom_pct` | 3,6% | 2,8% | **2,5%** |
+| `pod_seconds` | **3.495** | 3.595 (+3%) | 3.995 (+14%) |
+| `scaleups` / `false_scaleups` | 3 / 0 | 4 / **0** | 4 / **1** |
+| `k6_p95_ms` | 531 ms | 546 ms | 480 ms |
+
+**Contra o critério (fixado antes):**
+- p95 do ciclo < 2,5 s e nenhum reinício: **atingido** (0,48 s; 0).
+- itens por pod iguais no início e `at_min=1`: **atingido** (100;100 nas 3).
+- `false_scaleups` = 0 em A, B e C: **não atingido pela letra** (C = 1). O C não usa detector: escala por CPU a 35%, e a carga normal fica perto disso. O critério mirava alarmes do detector; o B, que usa o detector, teve 0.
+- alertas iniciais perto de 0 em todos: **atingido no A** (0 nos 6), **não atingido em B e C** (7–30%).
+
+**Leitura (N = 1, padrão, não conclusão):**
+1. **O reinício da app resolveu a latência:** no piloto 3, B e C chegaram a 975 e 1.200 ms nos picos; agora os três ficam entre 414 e 539 ms.
+2. **Custo da observação desprezível:** ciclo p95 < 0,5 s e ~0,03 núcleo com os 6. Pelo critério combinado, a Fase 1 mantém os 6 num pod só.
+3. **Ordem A → B → C** em reação, latência e SLO, e custo na mesma ordem: o B ganha sobre o A com +3% de custo; o C ganha mais, com +14% e 1 scale-up falso. É a pergunta B × C da Fase 3.
+4. **Alertas iniciais em B e C: picos de latência da app com carga normal.** A 1ª hipótese (scale-up no início somando memória dos pods) foi **refutada**: no B a memória ficou parada (~72,6–73,0 MB) e no C o degrau de memória (75 → 108 MB, pod novo) veio aos 125 s, **depois** dos alertas. O que coincide com os alertas são picos de latência p95 com a taxa estável:
+
+   | Execução | Trecho | Latência p95 | Alertas (soma dos 6) |
+   |---|---|---|---|
+   | B | 35–55 s | 5 → 29 ms | 1, 5, 5, 1 |
+   | B | 90–120 s | 5 → 21 ms | 2, 4, 4, 3, 1 |
+   | C | 75–105 s | 5 → 170 ms; CPU 1% → 9,5% | 4, 1, 6, 6, 5, 6, 6 |
+
+   Os detectores reagiram a um comportamento anormal real da app, que só não está no gabarito (o gabarito marca anomalias de **carga**). O EWMA (só latência, ±3σ) alarmou no pico grande do C e não nos pequenos do B. O scale-up falso do C é consequência do mesmo episódio: 9,5% de um núcleo para 2 pods ≈ 47% do `request` por pod > 35% → pod novo aos ~120 s, antes do 1º pico (150 s).
+
+   **Verificação seguinte (16/out): o A também oscilou** (9 → 19 ms aos 20–35 s, 12 ms aos ~65 s), só que abaixo da régua dos detectores (2×), por isso 0 alertas. Nas **três** execuções os picos caem nos mesmos instantes em relação ao início do roteiro: um logo após o início (A 20–35 s, B 30–50 s, C 15–35 s), outro ~50–60 s depois (A ~65 s, B 85–110 s, C 75–100 s). O 1º coincide com a troca aquecimento → roteiro (que termina aos 30 s): as rampas sobrepostas mantiveram a **taxa** constante, mas a **latência** ainda reage. A CPU por container nesses instantes ficou inconclusiva (coleta esparsa para janelas de 15 s); só a CPU da app subiu no pico do C.
+
+   **Análise por pod** (latência p95 por pod, `http_request_duration_seconds`):
+
+   | Execução | Episódio | Pod mais lento | O outro pod |
+   |---|---|---|---|
+   | A | 20–30 s | wxpxw: 24 ms | lnqzp: 15 ms (os dois sobem) |
+   | B | 30–50 s | 6968c: 51–55 ms | crxf8: 6–15 ms |
+   | B | 90–110 s | crxf8: 35 ms | 6968c: 14–18 ms |
+   | B | 140–150 s | crxf8: 31–32 ms | 6968c: 7–9 ms |
+   | C | ~30 s | p98rk: 18 ms | pr6c5: 7 ms |
+   | C | 80–100 s | pr6c5: 226–240 ms | p98rk: 34–38 ms |
+
+   **Dois tipos de episódio:**
+   - **1º, logo após a troca aquecimento → roteiro** (A 20–35 s, B 30–50 s, C 15–35 s): nas 3 execuções, no mesmo trecho, com a taxa de requisições subindo 8–14% entre 10 e 35 s (A 6,6 → 7,6; B 6,6 → 7,2; C 6,6 → 7,3 req/s). **Sistemático, do procedimento.**
+   - **2º, num pod só, em instantes irregulares** (B crxf8 90–110 s e 140–150 s; C pr6c5 80–100 s, até 240 ms): **ruído do ambiente**, igual para todos os detectores.
+
+   **Hipóteses descartadas:** réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas); retreino do LSTM a cada 60 s (segue o relógio do pod do detector, não sincronizado com o roteiro). A CPU por container nesses instantes ficou inconclusiva (coleta esparsa para janelas de 15 s).
+
+**Decisões (16/out/2026, Ricardo, antes da Fase 1; aguardando confirmação do orientador):**
+- Fase 1 com os 6 detectores num pod só (critério do ciclo atendido);
+- **acomodação inicial da avaliação (burn-in) de 60 s** (`EVAL_SKIP_SECONDS=60`): na Fase 1, offline e online, os pontos com offset < 60 s ficam fora de F1, precisão, recall e MTTD; os detectores veem a série inteira. Trata o 1º tipo de episódio; o 2º (ruído do ambiente) continua contando. Nenhum pico é cortado (1ª anomalia aos 150/175 s). Não se aplica à Fase 3. Registro: `DECISOES_METODO.md`, item 11. O `make check-inicio` passa a mostrar as duas partes (0–60 s e 60 s–1ª anomalia).
+
