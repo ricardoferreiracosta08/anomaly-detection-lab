@@ -24,6 +24,8 @@ ROLE        ?= local
 # .env antigo sem a variável: piso do σ do detector online no padrão (0 = desligado)
 DETECTOR_SIGMA_FLOOR ?= 0.05
 DETECTOR_FEATURE_FLOOR ?= 0.01
+# acomodação inicial da avaliação da Fase 1 (s fora da pontuação; 0 = avaliação antiga)
+EVAL_SKIP_SECONDS ?= 60
 # .env antigo sem as variáveis do LSTM (6º detector): padrões fixos da arquitetura
 LSTM_SEQ_LEN ?= 12
 LSTM_HIDDEN  ?= 16
@@ -46,6 +48,7 @@ ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
 	-v $(CURDIR)/datasets:/datasets -v $(CURDIR)/datasets_hpa:/datasets_hpa \
 	-v $(CURDIR)/results:/results -e PROMETHEUS_URL=$(PROM_URL) -e NAMESPACE=$(NAMESPACE) \
 	-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) \
+	-e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) \
 	$(ANALYSIS_IMAGE)
 
 # =============================================================================
@@ -293,6 +296,7 @@ online-replay:
 		-e DETECTOR_GAP=$(DETECTOR_GAP) -e DETECTOR_K_SIGMA=$(DETECTOR_K_SIGMA) -e DETECTOR_SIGMA_FLOOR=$(DETECTOR_SIGMA_FLOOR) -e DETECTOR_FEATURE_FLOOR=$(DETECTOR_FEATURE_FLOOR) \
 		-e DETECTOR_LEVEL_POINTS=$(DETECTOR_LEVEL_POINTS) -e DETECTOR_AE_RETRAIN=$(DETECTOR_AE_RETRAIN) \
 		-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) -e LSTM_RETRAIN=$(LSTM_RETRAIN) \
+		-e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) \
 		$(ANALYSIS_IMAGE) online_detector.py --replay /in/$(notdir $(CSV)) \
 		--replay-out /results/replay_$(notdir $(CSV))
 
@@ -301,7 +305,7 @@ DIR ?= datasets
 check-inicio:
 	$(call check_analysis_image)
 	@ls $(DIR)/*.csv >/dev/null 2>&1 || { echo "✗ Nenhum CSV em $(DIR)/"; exit 1; }
-	@docker run --rm -v $(CURDIR)/$(DIR):/in:ro $(ANALYSIS_IMAGE) check_inicio.py /in
+	@docker run --rm -e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) -v $(CURDIR)/$(DIR):/in:ro $(ANALYSIS_IMAGE) check_inicio.py /in
 
 ksm-deploy:
 	$(call check_kubectl)

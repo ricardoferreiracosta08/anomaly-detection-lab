@@ -16,6 +16,8 @@ Verifica:
   9. o LSTM (6º detector): offline acha um pico injetado, online devolve razão
      finita, e duas execuções com a mesma semente dão o mesmo resultado
   10. o piso relativo na padronização das entradas (DETECTOR_FEATURE_FLOOR)
+  11. a acomodação inicial da avaliação (EVAL_SKIP_SECONDS): fora da pontuação,
+      nenhum pico cortado, e 0 s reproduz a avaliação antiga
 """
 import json
 import logging
@@ -161,10 +163,39 @@ class T(unittest.TestCase):
         first = min(a for a, _ in ANOMALY_PHASES["burst"])
         off = np.arange(0, 300, 5.0)
         d = pd.DataFrame({"offset_seconds": off, "online_IF": (off < 60).astype(int), "online_AE": 0})
-        r = count_initial(d, "burst")
+        r = count_initial(d, "burst", split=60)
         self.assertEqual(r["pontos"], int((off < first).sum()))
         self.assertEqual(r["online_IF"], 12)
         self.assertEqual(r["online_AE"], 0)
+        # duas partes: [0, 60) acomodação e [60, 1ª anomalia)
+        self.assertEqual((r["pontos_1"], r["pontos_2"]), (12, int(((off >= 60) & (off < first)).sum())))
+        self.assertEqual((r["online_IF_1"], r["online_IF_2"]), (12, 0))
+
+    def test_eval_skip(self):
+        # acomodação inicial: pontos com offset < EVAL_SKIP_SECONDS fora da pontuação;
+        # o detector vê tudo; com 0, a avaliação é a de sempre (regressão)
+        import csv as _csv
+        import detectors as d
+        t, lab, X = burst_series()
+        alert = lab.copy()
+        alert[(t >= 15) & (t < 50)] = 1        # alarmes falsos na troca aquecimento → roteiro
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "burst_run1.csv")
+            with open(path, "w", newline="") as f:
+                w = _csv.writer(f)
+                w.writerow(["timestamp", "offset_seconds", "latency_p95", "cpu_percent", "memory_mb",
+                            "request_rate", "label", "online_IF"])
+                for i in range(len(t)):
+                    w.writerow([1000 + t[i], t[i], *X[i], lab[i], alert[i]])
+            r0 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_skip=0)}
+            r60 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_skip=60)}
+        full = d.compute_metrics(lab, alert, 1000 + t)
+        self.assertEqual(r0["IF_online"].f1, full["f1"])            # 0 s = avaliação antiga
+        self.assertEqual(r0["IF_online"].fp, int(((t >= 15) & (t < 50)).sum()))
+        self.assertEqual(r60["IF_online"].fp, 0)                     # os falsos da troca saem
+        self.assertEqual(r60["IF_online"].tp, r0["IF_online"].tp)   # nenhum pico do gabarito cortado
+        self.assertEqual(r60["IF_online"].total_points, int((t >= 60).sum()))
+        self.assertEqual(r60["EWMA"].eval_skip_s, 60)
 
     def test_ic_slide55(self):
         from stats_tlc import ic

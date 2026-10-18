@@ -12,6 +12,10 @@ aquecimento e o piso do σ, o esperado é perto de zero (alguns isolados com K =
 
 O início da 1ª janela vem de ANOMALY_PHASES (export_metrics.py), não é fixo.
 O cenário é lido do nome do arquivo: <cenario>_runN.csv ou <modo>_<cenario>_runN.csv.
+
+O trecho é mostrado em duas partes, separadas em EVAL_SKIP_SECONDS (padrão 60):
+  0–60 s    acomodação: a troca aquecimento → roteiro (fora da avaliação da Fase 1)
+  60 s–1ª anomalia   ruído real que conta na avaliação
 """
 import argparse
 import glob
@@ -29,13 +33,19 @@ def scenario_of(path):
     return m.group(1) if m and m.group(1) in ANOMALY_PHASES else None
 
 
-def count_initial(d, scenario):
-    """{'pontos': n, 'online_X': alertas, ...} no trecho antes da 1ª janela anômala."""
+def count_initial(d, scenario, split=None):
+    """Alertas online antes da 1ª janela anômala, no total e nas duas partes do trecho:
+    [0, split) acomodação e [split, 1ª anomalia). Chaves: pontos, pontos_1, pontos_2,
+    online_X, online_X_1, online_X_2."""
+    split = float(os.environ.get("EVAL_SKIP_SECONDS", "60") or 0) if split is None else split
     first = min(a for a, _ in ANOMALY_PHASES[scenario])
-    ini = d[pd.to_numeric(d["offset_seconds"], errors="coerce") < first]
-    out = {"inicio_s": first, "pontos": len(ini)}
+    off = pd.to_numeric(d["offset_seconds"], errors="coerce")
+    ini = d[off < first]
+    p1, p2 = ini[off[off < first] < split], ini[off[off < first] >= split]
+    out = {"inicio_s": first, "split_s": split, "pontos": len(ini), "pontos_1": len(p1), "pontos_2": len(p2)}
     for c in sorted(c for c in d.columns if c.startswith("online_")):
-        out[c] = int((pd.to_numeric(ini[c], errors="coerce").fillna(0) > 0.5).sum())
+        f = lambda x: int((pd.to_numeric(x[c], errors="coerce").fillna(0) > 0.5).sum())
+        out[c], out[c + "_1"], out[c + "_2"] = f(ini), f(p1), f(p2)
     return out
 
 
@@ -53,24 +63,26 @@ def main(directory):
         rows.append((os.path.basename(f), r))
     if not rows:
         sys.exit("✗ nenhum CSV com nome <cenario>_runN.csv ou <modo>_<cenario>_runN.csv")
-    dets = sorted({k for _, r in rows for k in r if k.startswith("online_")})
+    dets = sorted({k for _, r in rows for k in r if k.startswith("online_") and not k.endswith(("_1", "_2"))})
     if not dets:
         sys.exit("✗ os CSVs não têm colunas online_* (o detector online estava rodando?)")
 
-    print(f"Alertas online antes da 1ª anomalia (alertas / pontos) — {directory}")
-    print(f"{'execução':<26}{'início':>7}" + "".join(f"{d[7:]:>10}" for d in dets))
-    tot = {d: [0, 0] for d in dets}
+    split = rows[0][1]["split_s"]
+    print(f"Alertas online antes da 1ª anomalia — {directory}")
+    print(f"cada célula: [0, {split:.0f}) s acomodação (fora da avaliação) | [{split:.0f} s, 1ª anomalia) conta na avaliação")
+    print(f"{'execução':<22}{'início':>7}" + "".join(f"{d[7:]:>13}" for d in dets))
+    tot = {d: [0, 0, 0, 0] for d in dets}
     for name, r in rows:
         cells = []
         for d in dets:
             if d in r:
-                cells.append(f"{r[d]}/{r['pontos']}")
-                tot[d][0] += r[d]; tot[d][1] += r["pontos"]
+                cells.append(f"{r[d + '_1']}/{r['pontos_1']} | {r[d + '_2']}/{r['pontos_2']}")
+                t = tot[d]; t[0] += r[d + "_1"]; t[1] += r["pontos_1"]; t[2] += r[d + "_2"]; t[3] += r["pontos_2"]
             else:
                 cells.append("—")
-        print(f"{name:<26}{r['inicio_s']:>6}s" + "".join(f"{c:>10}" for c in cells))
-    print(f"{'total':<26}{'':>7}" + "".join(
-        f"{(100 * a / n if n else 0):>9.0f}%" for a, n in (tot[d] for d in dets)))
+        print(f"{name:<22}{r['inicio_s']:>6}s" + "".join(f"{c:>13}" for c in cells))
+    pct = lambda a, n: f"{100 * a / n:.0f}%" if n else "—"
+    print(f"{'total':<22}{'':>7}" + "".join(f"{pct(t[0], t[1]) + ' | ' + pct(t[2], t[3]):>13}" for t in (tot[d] for d in dets)))
     print("Critério (docs/PILOTOS.md): perto de 0% (alguns alertas isolados são esperados com K = 2).")
 
 

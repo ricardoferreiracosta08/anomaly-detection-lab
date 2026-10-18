@@ -78,6 +78,7 @@ CFG = dict(
     ae_retrain=env("DETECTOR_AE_RETRAIN", 12, int),  # retreina o AE a cada 12 passos (1 min)
     lstm_seq_len=env("LSTM_SEQ_LEN", 12, int),       # pontos anteriores usados na previsão (1 min)
     lstm_retrain=env("LSTM_RETRAIN", 12, int),       # retreina a LSTM a cada 12 passos (1 min)
+    eval_skip=env("EVAL_SKIP_SECONDS", 60.0, float),  # replay: s iniciais fora da pontuação (acomodação)
     algos=[a.strip().upper() for a in env("DETECTOR_ALGOS", "EWMA,IF,LOF,DBSCAN,AE,LSTM").split(",") if a.strip()],
     target=env("TARGET_APP", "fastapi"),
 )
@@ -308,12 +309,16 @@ def replay(cfg, path, out_path=None):
             w = csv.DictWriter(f, fieldnames=list(records[0].keys()))
             w.writeheader()
             w.writerows(records)
-    y = np.array([int(r["label"]) for r in records])
-    print(f"Replay {os.path.basename(path)}: {len(records)} pontos, {int(y.sum())} anômalos "
+    # pontuação com a mesma acomodação inicial da Fase 1 (detectors.py): o detector viu tudo
+    off = np.array([num(r["offset_seconds"]) for r in records])
+    keep = np.nan_to_num(off, nan=0.0) >= cfg["eval_skip"]
+    y = np.array([int(r["label"]) for r in records])[keep]
+    print(f"Replay {os.path.basename(path)}: {int(keep.sum())} de {len(records)} pontos avaliados "
+          f"(acomodação {cfg['eval_skip']:.0f} s), {int(y.sum())} anômalos "
           f"(piso_σ={cfg['sigma_floor']}, piso_entrada={cfg['feature_floor']})")
     print(f"  {'detector':<8} {'prec':>6} {'recall':>7} {'F1':>6} {'alarmes':>8}")
     for a in cfg["algos"]:
-        p = np.array([r[f"alert_{a}"] for r in records])
+        p = np.array([r[f"alert_{a}"] for r in records])[keep]
         tp, fp, fn = int(((p == 1) & (y == 1)).sum()), int(((p == 1) & (y == 0)).sum()), int(((p == 0) & (y == 1)).sum())
         pr = tp / (tp + fp) if tp + fp else 0.0
         rc = tp / (tp + fn) if tp + fn else 0.0

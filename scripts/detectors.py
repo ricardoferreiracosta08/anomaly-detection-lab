@@ -24,6 +24,15 @@ Tradução:
 Avaliação online (opcional): se o CSV tiver colunas online_<DET> (alertas
 exportados do online_detector via Prometheus), elas são avaliadas como <DET>_online.
 
+Acomodação inicial (EVAL_SKIP_SECONDS, padrão 60; decisão de 16/out/2026, antes da
+Fase 1): os pontos com offset_seconds < EVAL_SKIP_SECONDS NÃO entram em F1, precisão,
+recall e MTTD, para offline e online igualmente. Os detectores continuam rodando
+sobre a série inteira; só a pontuação ignora o trecho. A 1ª anomalia do gabarito
+começa aos 150 s (burst, shift) e 175 s (rampup): nenhum pico é cortado. Motivo:
+oscilação de latência sistemática logo após a troca aquecimento → roteiro (piloto 4,
+docs/PILOTOS.md; docs/DECISOES_METODO.md, item 11). EVAL_SKIP_SECONDS=0 reproduz a
+avaliação antiga (e a da qualificação).
+
 Uso:
   python scripts/detectors.py --input datasets/burst_run1.csv --output results/
   python scripts/detectors.py --input datasets/ --output results/  # processa todos CSVs
@@ -44,6 +53,8 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+EVAL_SKIP_SECONDS = float(os.environ.get("EVAL_SKIP_SECONDS", "60") or 0)
 
 # ── Tentar importar sklearn; informar se ausente ────────────────────────────
 try:
@@ -77,6 +88,7 @@ class DetectionResult:
     tn: int
     total_points: int
     anomaly_ratio: float
+    eval_skip_s: float = 0.0   # segundos iniciais fora da avaliação (acomodação)
 
 
 # =============================================================================
@@ -452,8 +464,14 @@ def load_csv(path: str, how: str = "zero") -> dict:
             vals = np.array([num(r.get(col)) for r in rows])
             online[col[len("online_"):] + "_online"] = (np.nan_to_num(vals, nan=0.0) > 0.5).astype(int)
 
+    if "offset_seconds" in rows[0]:
+        offsets = np.array([num(r.get("offset_seconds")) for r in rows])
+    else:
+        offsets = timestamps - timestamps[0]
+
     return {
         "timestamps": timestamps,
+        "offsets": offsets,
         "labels": labels,
         "features": features,
         "latency": features[:, 0],   # métrica univariada do EWMA
@@ -463,8 +481,15 @@ def load_csv(path: str, how: str = "zero") -> dict:
     }
 
 
-def run_detectors(csv_path: str, selected: list, how: str = "zero") -> list[DetectionResult]:
-    """Executa os detectores selecionados sobre um CSV e retorna resultados."""
+def eval_mask(offsets: np.ndarray, skip: float) -> np.ndarray:
+    """Pontos que entram na avaliação: offset_seconds >= skip (acomodação inicial)."""
+    return np.nan_to_num(offsets, nan=0.0) >= skip
+
+
+def run_detectors(csv_path: str, selected: list, how: str = "zero",
+                  eval_skip: float = EVAL_SKIP_SECONDS) -> list[DetectionResult]:
+    """Executa os detectores selecionados sobre um CSV e retorna resultados.
+    Os detectores veem a série inteira; a pontuação ignora offset < eval_skip."""
     fname = Path(csv_path).stem
     # Inferir cenário e run do nome: burst_run1, rampup_run2, shift_run3
     parts = fname.split("_")
@@ -477,9 +502,15 @@ def run_detectors(csv_path: str, selected: list, how: str = "zero") -> list[Dete
     print(f"{'='*60}")
 
     data = load_csv(csv_path, how)
-    n = data["n_points"]
-    n_anom = int(np.sum(data["labels"]))
-    print(f"  Pontos: {n} | Anômalos: {n_anom} ({100*n_anom/n:.1f}%) | "
+    keep = eval_mask(data["offsets"], eval_skip)
+    cut_anom = int(np.sum(data["labels"][~keep]))
+    if cut_anom:   # nunca deve ocorrer: o gabarito começa aos 150/175 s
+        print(f"  ⚠ {cut_anom} ponto(s) anômalo(s) do gabarito caem antes de {eval_skip:.0f} s e ficam fora da avaliação")
+    y, ts = data["labels"][keep], data["timestamps"][keep]
+    n = int(keep.sum())
+    n_anom = int(np.sum(y))
+    print(f"  Pontos avaliados: {n} de {data['n_points']} (acomodação: {eval_skip:.0f} s) | "
+          f"Anômalos: {n_anom} ({100*n_anom/max(n, 1):.1f}%) | "
           f"valores ausentes imputados ({how}): {data['n_missing']}")
 
     results = []
@@ -489,12 +520,12 @@ def run_detectors(csv_path: str, selected: list, how: str = "zero") -> list[Dete
 
     for i, (name, desc, fn) in enumerate(jobs, 1):
         print(f"  [{i}/{len(jobs)}] {desc}...")
-        pred = fn(data)
-        m = compute_metrics(data["labels"], pred, data["timestamps"])
+        pred = fn(data)   # o detector vê a série inteira
+        m = compute_metrics(y, np.asarray(pred)[keep], ts)
         print(f"    F1={m['f1']:.3f} | Prec={m['precision']:.3f} | Rec={m['recall']:.3f} | MTTD={m['mttd_seconds']:.1f}s")
         results.append(DetectionResult(
             detector=name, scenario=scenario, run=run,
-            total_points=n, anomaly_ratio=round(n_anom / n, 3), **m
+            total_points=n, anomaly_ratio=round(n_anom / max(n, 1), 3), eval_skip_s=eval_skip, **m
         ))
 
     return results
@@ -593,6 +624,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="results/", help="Diretório de saída")
     parser.add_argument("--detectors", default=",".join(DETECTORS),
                         help=f"Lista separada por vírgula (padrão: {','.join(DETECTORS)})")
+    parser.add_argument("--eval-skip", type=float, default=EVAL_SKIP_SECONDS,
+                        help="segundos iniciais fora da avaliação (acomodação; padrão EVAL_SKIP_SECONDS ou 60)")
     parser.add_argument("--impute", choices=["ffill", "zero"], default="zero",
                         help="Lacunas do Prometheus: zero (padrão, igual à qualificação) ou ffill")
     args = parser.parse_args()
@@ -606,7 +639,7 @@ if __name__ == "__main__":
     all_results = []
 
     if input_path.is_file():
-        all_results.extend(run_detectors(str(input_path), selected, args.impute))
+        all_results.extend(run_detectors(str(input_path), selected, args.impute, args.eval_skip))
     elif input_path.is_dir():
         csvs = sorted(input_path.glob("*.csv"))
         if not csvs:
@@ -614,7 +647,7 @@ if __name__ == "__main__":
             sys.exit(1)
         print(f"Encontrados {len(csvs)} CSVs para processar")
         for csv_file in csvs:
-            all_results.extend(run_detectors(str(csv_file), selected, args.impute))
+            all_results.extend(run_detectors(str(csv_file), selected, args.impute, args.eval_skip))
     else:
         print(f"ERRO: {input_path} não existe")
         sys.exit(1)
