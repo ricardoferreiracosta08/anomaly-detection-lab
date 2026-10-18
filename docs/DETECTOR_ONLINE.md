@@ -222,6 +222,8 @@ Há duas formas honestas de reportar o online:
 
 A tolerância, se usada, é decidida agora e escrita no método. Não pode ser escolhida olhando os resultados finais. O mesmo vale para o K: foi escolhido nos dados da qualificação (K = 2) e não é reajustado na Fase 1 definitiva.
 
+**Decidido e implementado** ([DECISOES_METODO.md](DECISOES_METODO.md), item 6): as duas formas. **Principal:** F1, precisão, recall e MTTD sem tolerância. **Secundário:** `f1_tol`, `precision_tol` e `recall_tol`, com os pontos normais até `EVAL_TOLERANCE_SECONDS` = **15 s** (3 passos, o atraso medido acima) depois do fim de cada janela anômala fora da conta. A tolerância só tira falsos positivos de transbordo; não muda os acertos nem o MTTD. Valor a confirmar com o orientador antes da Fase 1.
+
 ## 6. Validação do piso
 
 Replay dos 9 CSVs reais da qualificação (3 cenários × 3 repetições), com piso 0 e com piso 0,05; F1 ponto a ponto, média das 3 repetições. Dados: [validacao/piso_sigma.csv](validacao/piso_sigma.csv) (médias, com precisão, recall e alarmes) e [validacao/piso_sigma_por_execucao.csv](validacao/piso_sigma_por_execucao.csv).
@@ -332,6 +334,7 @@ Leitura: o replay supera o offline em 4 de 5 detectores; ao vivo perde cerca de 
 | `DETECTOR_LEVEL_POINTS` | `3` | alertas usados no `anomaly_level` |
 | `DETECTOR_AE_RETRAIN` | `12` | retreino do AE (passos) |
 | `EVAL_SKIP_SECONDS` | `60` | acomodação: segundos iniciais fora da **pontuação** da Fase 1 (offline, online e replay); 0 = avaliação antiga |
+| `EVAL_TOLERANCE_SECONDS` | `15` | tolerância de atraso depois de cada pico, só nas métricas **secundárias** (`f1_tol` etc.); 0 = sem |
 | `LSTM_SEQ_LEN` | `12` | pontos anteriores usados na previsão (1 min) |
 | `LSTM_HIDDEN` | `16` | unidades da camada LSTM |
 | `LSTM_EPOCHS` | `30` | épocas de treino (Adam, lote único) |

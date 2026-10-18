@@ -8,12 +8,12 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 | # | Decisão | Afeta | Proposta | Fechar antes de |
 |---|---|---|---|---|
-| 1 | Teste pareado ou não pareado | Fase 1 | **adotada** (aguarda orientador): pareado; **implementação pendente** | Fase 1 |
+| 1 | Teste pareado ou não pareado | Fase 1 | **adotada e implementada** (aguarda orientador): pareado na Fase 1, não pareado na Fase 3 | Fase 1 |
 | 2 | Quais comparações fazer | Fase 1 | só as que respondem às perguntas | Fase 1 |
 | 3 | LSTM no rol e como candidato ao B | Fases 1 e 3 | **adotada** (aguarda orientador): manter; piloto 4: ciclo p95 0,48 s | Fase 1 |
 | 4 | Estado inicial da aplicação | Fases 1 e 3 | **adotada** (aguarda orientador): reiniciar com 100 itens | Fase 1 |
 | 5 | Detectores no cluster | Fases 1 e 3 | **adotada** (aguarda orientador): Fase 1 num pod; Fase 3 só o do B | Fase 1 |
-| 6 | Tolerância de atraso na avaliação do online | Fase 1 | **adotada** (aguarda orientador): sem (principal) e com tolerância; **valor e implementação pendentes** | Fase 1 |
+| 6 | Tolerância de atraso na avaliação do online | Fase 1 | **adotada e implementada** (aguarda orientador): sem (principal) e com 15 s (secundário); **valor a confirmar** | Fase 1 |
 | 7 | Detector do modo B e métrica principal | Fase 3 | **regra registrada em 16/out/2026** (ver item 7); métrica: tempo de reação | Fase 3 |
 | 8 | Valor do SLO (500 ms) | Fase 3 | manter + sensibilidade com outros limites | Fase 3 |
 | 9 | Ameaças à validade suficientes? | escrita | declarar as limitações | escrita |
@@ -36,7 +36,10 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 **Proposta.** Pareado na Fase 1. Na Fase 3 continua não pareado, porque lá A, B e C são execuções independentes.
 
-**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador.** **Implementação pendente:** o `stats_tlc.py` ainda calcula só o não pareado; implementar o pareado antes da Fase 1.
+**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`paired_test` em `scripts/stats_tlc.py`):
+- **Fase 1:** cada par (detector × detector, ou offline × online) é comparado **execução a execução**: d = Y_A − Y_B em cada execução, IC 95% de d̄ = d̄ ± t(0,975; N−1)·S_d/√N (a mesma fórmula do IC da média), t = d̄/(S_d/√N), gl = N − 1, p bilateral. Diferença significativa se o IC não contém o 0. O relatório (`results/stats/phase1/relatorio.md`) mostra N, a diferença, o IC da diferença, t, gl e p.
+- **Fase 3:** continua o t não pareado do material [AR 66] (gl = nA + nB − 2) com o teste visual dos ICs [AR 64].
+- `make selftest` (`test_paired_test`): confere a fórmula, o alinhamento pela execução e um caso em que o pareado vê uma melhora constante que o não pareado não vê.
 
 **Não fazer.** Rodar os dois e reportar o que deu diferença. Se quiser mostrar o outro, ele entra como "análise de robustez", declarada como tal.
 
@@ -93,7 +96,11 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 **Proposta.** Reportar o F1 online sem tolerância (principal) e com uma tolerância fixa após o fim do pico (secundário). O valor da tolerância é fixado antes.
 
-**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador.** **Pendente:** fixar o valor da tolerância e implementar (a avaliação calcula só o F1 sem tolerância) antes da Fase 1.
+**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`tolerance_mask` em `scripts/detectors.py`):
+- **Principal:** F1, precisão, recall e MTTD **sem tolerância** (como sempre).
+- **Secundário:** `f1_tol`, `precision_tol` e `recall_tol`, com os pontos **normais** até `EVAL_TOLERANCE_SECONDS` depois do fim de cada janela anômala **fora da conta**: o alerta que chega atrasado pelo pipeline não vira falso positivo. Calculado para todos os detectores; o relatório da Fase 1 mostra para os online.
+- **Valor proposto: 15 s** (3 passos de 5 s), pelo atraso medido do pipeline online (2–3 ciclos; `DETECTOR_ONLINE.md`, seção 5). **A confirmar com o orientador antes da Fase 1**; depois, não muda.
+- `EVAL_TOLERANCE_SECONDS=0` → as métricas secundárias ficam iguais às principais (verificado: 54/54).
 
 ### 7. Detector do modo B e métrica principal (pré-registro)
 

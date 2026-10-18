@@ -95,6 +95,15 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (18/out): teste pareado na Fase 1 e tolerância de atraso (decisões 1 e 6)
+
+**Por quê.** As decisões 1 e 6 de [DECISOES_METODO.md](DECISOES_METODO.md) foram adotadas em 16/out (aguardando o orientador) e precisavam estar implementadas antes da Fase 1.
+
+- **Teste pareado na Fase 1** (`paired_test` em `stats_tlc.py`): detectores e formas (offline, online) saem das mesmas execuções; cada par é comparado execução a execução, d = Y_A − Y_B, IC 95% de d̄ = d̄ ± t(0,975; N−1)·S_d/√N, t = d̄/(S_d/√N), gl = N − 1, p bilateral. O `pairwise` alinha A e B pela execução (`_rep`). O relatório mostra N, a diferença, o IC da diferença, t, gl, p. A **Fase 3 continua com o t não pareado** [AR 66] e o teste visual [AR 64]. Novas colunas nas tabelas de testes: `metodo`, `n`, `IC_dif_inf`, `IC_dif_sup`.
+- **Tolerância de atraso, métrica secundária** (`tolerance_mask` em `detectors.py`, `EVAL_TOLERANCE_SECONDS`, padrão 15 s; 0 = sem): `f1_tol`, `precision_tol` e `recall_tol` ignoram os pontos normais até 15 s depois do fim de cada janela anômala (alerta online que transborda pelo atraso do pipeline). O F1 principal continua sem tolerância. O relatório da Fase 1 mostra o F1 online com tolerância numa seção própria. Valor a confirmar com o orientador.
+- **`make selftest`:** `test_paired_test` e `test_eval_tolerance`. Agora 16 testes.
+- **Regressão:** com `EVAL_SKIP_SECONDS=0` e `EVAL_TOLERANCE_SECONDS=0`, as métricas principais nos 9 CSVs da qualificação são idênticas ao `results_qualificacao/detection_results.csv` (45/45) e `f1_tol` = `f1` (54/54); com 15 s, `f1_tol` ≥ `f1` em todas (54/54), como esperado.
+
 ## Novo (16/out, depois do piloto 4): acomodação inicial da avaliação
 
 **Por quê.** No piloto 4 ([PILOTOS.md](PILOTOS.md)), a latência oscilou logo após a troca aquecimento → roteiro nas **3 execuções**, no mesmo trecho (A 20–35 s, B 30–50 s, C 15–35 s), com a taxa de requisições subindo 8–14% entre 10 e 35 s: um efeito **sistemático do procedimento**, que fazia os multivariados alarmarem. Um 2º tipo de oscilação, num pod só e em instantes irregulares (até 240 ms), é ruído do ambiente, igual para todos os detectores, e não é tratado. Decisão do Ricardo em 16/out/2026, antes da Fase 1 (pré-registro; [DECISOES_METODO.md](DECISOES_METODO.md), item 11).
