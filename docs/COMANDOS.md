@@ -96,7 +96,7 @@ Uma única execução do burst, cerca de 20 min (aquecimento incluído). Serve p
 Mesmo que `make experiment`. É o nome antigo, mantido.
 
 ### `make detect`
-Só roda os 6 detectores sobre os CSVs que já estão em `datasets/` e gera `results/detection_results.csv`. Não roda carga nenhuma.
+Só roda os 6 detectores (e pontua os alertas `online_*`) sobre os CSVs que já estão em `datasets/` e gera `results/detection_results.csv`. Não roda carga nenhuma. A pontuação ignora os primeiros `EVAL_SKIP_SECONDS` (60) segundos de cada execução (acomodação; os detectores veem a série inteira); a coluna `eval_skip_s` registra o valor usado. Para a avaliação antiga: `make detect EVAL_SKIP_SECONDS=0`.
 
 ### `make k6-summary`
 Junta os resumos do k6 de cada execução em `results/k6_summary.csv`: média, mediana, p90, p95, p99, requisições e erros, uma linha por execução.
@@ -121,7 +121,7 @@ Testa o detector online **sem cluster**, "re-assistindo" um CSV ponto a ponto, c
 make online-replay CSV=datasets_qualificacao/burst_run1.csv
 ```
 
-Usa o `DETECTOR_SIGMA_FLOOR` do `.env`; para comparar, troque só naquele comando: `make online-replay CSV=… DETECTOR_SIGMA_FLOOR=0`.
+Usa o `DETECTOR_SIGMA_FLOOR` e o `EVAL_SKIP_SECONDS` (acomodação de 60 s na pontuação) do `.env`; para comparar, troque só naquele comando: `make online-replay CSV=… DETECTOR_SIGMA_FLOOR=0` ou `… EVAL_SKIP_SECONDS=0`.
 
 ### `make check-inicio DIR=<pasta>`
 Conta, em cada CSV da pasta (padrão `datasets`), quantos alertas `online_*` cada detector deu **antes da 1ª janela anômala** do cenário, mostrando "alertas / pontos". O início da 1ª janela vem do gabarito (`ANOMALY_PHASES`), não é fixo. Nesse trecho não há anomalia, então todo alerta é falso alarme. Use depois de um piloto:
@@ -130,6 +130,8 @@ Conta, em cada CSV da pasta (padrão `datasets`), quantos alertas `online_*` cad
 make check-inicio                    # Fase 1 (datasets/)
 make check-inicio DIR=datasets_hpa   # Fase 3
 ```
+
+Cada célula mostra as duas partes do trecho, separadas em `EVAL_SKIP_SECONDS` (60 s): **[0, 60) s**, a acomodação após a troca aquecimento → roteiro, que fica fora da avaliação da Fase 1; e **[60 s, 1ª anomalia)**, ruído real que conta na avaliação. Assim dá para separar a troca do ruído.
 
 Critério ([PILOTOS.md](PILOTOS.md)): perto de 0% (alguns alertas isolados são esperados com K = 2). No piloto 2, antes do aquecimento, era 53–87%. Não roda carga nem mexe no cluster.
 

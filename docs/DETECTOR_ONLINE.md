@@ -130,6 +130,8 @@ depois da carga:  Prometheus ──▶ CSV (métricas + label + online_*) ──
 1. No fim da carga, o `export_metrics.py` puxa do Prometheus as 4 métricas, o `label` (gabarito do roteiro do k6) e as 5 séries `anomaly_alert`, alinhadas nos mesmos instantes de 5 s.
 2. O `detectors.py` **roda** os 6 offline sobre as 4 métricas e **apenas pontua** as colunas `online_*`, que já são decisões tomadas ao vivo. As duas pontuações usam o mesmo código de precisão, recall, F1 e MTTD.
 
+**Acomodação inicial (burn-in, `EVAL_SKIP_SECONDS` = 60 s).** Na pontuação da Fase 1, os pontos com `offset_seconds` < 60 s **não contam**, para offline e online igualmente (e no `make online-replay`). Os detectores rodam sobre a série inteira: a janela de referência do online e o "normal" do EWMA offline (primeiros 150 s) não mudam; só a pontuação ignora o trecho. Motivo: no piloto 4, logo após a troca aquecimento → roteiro, a latência oscilou nas 3 execuções, no mesmo trecho (até ~50 s), e os multivariados alarmavam. Nenhum pico é cortado: a 1ª anomalia começa aos 150 s (burst, shift) e 175 s (rampup). Os alarmes entre 60 s e a 1ª anomalia continuam contando: ali há ruído real (oscilações num pod só, de origem do ambiente) que todo detector enfrenta. `EVAL_SKIP_SECONDS=0` reproduz a avaliação antiga e a da qualificação. Decisão: [DECISOES_METODO.md](DECISOES_METODO.md), item 11.
+
 O HPA não participa disso: na Fase 1 ele fica no modo A (só CPU).
 
 ## 3. Três formas de usar os mesmos algoritmos
@@ -329,6 +331,7 @@ Leitura: o replay supera o offline em 4 de 5 detectores; ao vivo perde cerca de 
 | `DETECTOR_FEATURE_FLOOR` | `0.01` | piso relativo na padronização das entradas: σ_entrada = máx(σ, piso·\|μ\|) (IF, LOF, DBSCAN, AE, LSTM); `0` = desligado |
 | `DETECTOR_LEVEL_POINTS` | `3` | alertas usados no `anomaly_level` |
 | `DETECTOR_AE_RETRAIN` | `12` | retreino do AE (passos) |
+| `EVAL_SKIP_SECONDS` | `60` | acomodação: segundos iniciais fora da **pontuação** da Fase 1 (offline, online e replay); 0 = avaliação antiga |
 | `LSTM_SEQ_LEN` | `12` | pontos anteriores usados na previsão (1 min) |
 | `LSTM_HIDDEN` | `16` | unidades da camada LSTM |
 | `LSTM_EPOCHS` | `30` | épocas de treino (Adam, lote único) |

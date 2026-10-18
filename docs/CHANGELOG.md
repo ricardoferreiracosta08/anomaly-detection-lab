@@ -95,6 +95,18 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (16/out, depois do piloto 4): acomodação inicial da avaliação
+
+**Por quê.** No piloto 4 ([PILOTOS.md](PILOTOS.md)), a latência oscilou logo após a troca aquecimento → roteiro nas **3 execuções**, no mesmo trecho (A 20–35 s, B 30–50 s, C 15–35 s), com a taxa de requisições subindo 8–14% entre 10 e 35 s: um efeito **sistemático do procedimento**, que fazia os multivariados alarmarem. Um 2º tipo de oscilação, num pod só e em instantes irregulares (até 240 ms), é ruído do ambiente, igual para todos os detectores, e não é tratado. Decisão do Ricardo em 16/out/2026, antes da Fase 1 (pré-registro; [DECISOES_METODO.md](DECISOES_METODO.md), item 11).
+
+- **`EVAL_SKIP_SECONDS`** (padrão 60; 0 = avaliação antiga): na avaliação da Fase 1, offline **e** online, os pontos com `offset_seconds` < 60 s não entram em F1, precisão, recall e MTTD. Os detectores continuam rodando sobre a série inteira; só a pontuação ignora o trecho (`eval_mask` em `detectors.py`; a coluna `eval_skip_s` registra o valor em `detection_results.csv`). Vale também no `make online-replay`.
+- **Nenhum pico é cortado:** a 1ª anomalia de `ANOMALY_PHASES` começa aos 150 s (burst, shift) e 175 s (rampup); o `detectors.py` avisa se algum ponto do gabarito cair antes do corte. Gabarito, roteiros k6, parâmetros dos detectores, `datasets_qualificacao/` e `results_qualificacao/` inalterados.
+- **Fase 3 sem mudança:** `hpa_metrics.py` olha os picos e os scale-ups; nenhuma métrica do HPA pontua alertas no trecho inicial.
+- **`make check-inicio`:** cada célula mostra as duas partes do trecho, [0, 60) s (acomodação) e [60 s, 1ª anomalia) (conta na avaliação), para separar a troca do ruído.
+- **`make selftest`:** `test_eval_skip` (fora da pontuação, nenhum pico cortado, 0 s = avaliação antiga) e `test_check_inicio` com as duas partes. Agora 14 testes.
+- **Regressão:** com `EVAL_SKIP_SECONDS=0`, o offline nos 9 CSVs da qualificação é idêntico ao `results_qualificacao/detection_results.csv` (45/45) e o LSTM offline idêntico à validação dele (9/9); o replay online é idêntico à validação do piso nas entradas (54/54); com 60 s, os pontos anômalos avaliados são os mesmos (54/54).
+- **Decisões de método:** `docs/DECISOES_METODO.md` (antes `DECISOES_METODOS_ABERTAS.md`, não versionado) passa a ser a fonte única, com link no README e no regras do projeto; os itens 1, 3, 4, 5 e 6 marcados como adotados em 16/out/2026 (aguardando o orientador; 1 e 6 com implementação pendente).
+
 ## Corrigido
 
 | Problema | Efeito | Correção |

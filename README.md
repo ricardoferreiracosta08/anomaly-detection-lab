@@ -8,7 +8,7 @@ e HPA proativo avaliado contra o HPA reativo (Fase 3).
 
 ## Pré-requisitos
 
-Docker 24+. `./setup.sh` instala k3d e kubectl. k6, Python, scikit-learn e o detector online rodam em container.
+Docker 24+. `./setup.sh` instala k3d e kubectl. k6, Python, scikit-learn, PyTorch (só CPU, para o LSTM) e o detector online rodam em container.
 
 ## Início rápido (tudo local)
 
@@ -38,22 +38,24 @@ O passo a passo completo, com o teste da VPN e a solução de problemas, está e
 
 | Fase | O que faz | Comando | Saída |
 |---|---|---|---|
-| 1. Comparar | 3 cenários × `REPS` (10), ordem aleatória, 6 detectores offline | `make experiment` | `results/detection_results.csv`, `results/k6_summary.csv`, `results/stats/phase1/` |
+| 1. Comparar | 3 cenários × `REPS` (10), ordem aleatória, 6 detectores **offline e online** (HPA no modo A) | `make experiment` | `results/detection_results.csv`, `results/k6_summary.csv`, `results/stats/phase1/` |
 | 2. Detector online | 6 detectores em janela deslizante no cluster, publicando `anomaly_score`, `anomaly_alert` e `anomaly_level` | `make up` (já incluso) | Prometheus/Grafana; colunas `online_<DET>` nos CSVs |
 | 3. Avaliar o HPA | modos A, B e C × 3 cenários × `REPS` | `make hpa-experiment` | `results/hpa/hpa_results.csv`, `results/stats/phase3/` |
 
 **Modos do HPA** (`make hpa-mode HPA_MODE=X`). Como o HPA decide, por que existe o modo C, as métricas e a estatística da Fase 3: **[docs/HPA.md](docs/HPA.md)**. Como o detector online funciona (Fase 2): **[docs/DETECTOR_ONLINE.md](docs/DETECTOR_ONLINE.md)**. O que cada painel do Grafana mostra e como ler: **[docs/GRAFANA.md](docs/GRAFANA.md)**.
 
+Antes de **cada** execução (Fases 1 e 3): a app é reiniciada (estado limpo), o HPA volta a 2 réplicas no modo A, há um cooldown e um aquecimento de 330 s com a carga normal do cenário, cujas rampas se sobrepõem às do roteiro; o modo da execução só entra logo antes do roteiro. Por quê: [docs/PILOTOS.md](docs/PILOTOS.md).
+
 | Modo | Métricas | Papel |
 |---|---|---|
 | A | CPU 50% | baseline (estado atual) |
-| B | CPU 50% + `anomaly_level` do IF | tratamento (HPA proativo) |
+| B | CPU 50% + `anomaly_level` do detector escolhido na Fase 1 (`HPA_B_DETECTOR`) | tratamento (HPA proativo) |
 | C | CPU 35% | controle de custo: ganho por detectar ou só por ligar mais pods? |
-| D | CPU 50% + `anomaly_level` do EWMA | ablação opcional (univariado × multivariado) |
+| D | CPU 50% + `anomaly_level` de um 2º detector (`HPA_D_DETECTOR`, ex.: EWMA) | ablação opcional (univariado × multivariado) |
 
 ## Detectores
 
-| Detector | Classe | Métricas | Decisão |
+| Detector | Classe | Métricas | Decisão offline (Fase 1) |
 |---|---|---|---|
 | EWMA | estatístico | 1 (latência p95) | média suavizada (λ=0,3) fora de μ ± 3σ |
 | IF | isolamento | 4 | contamination = 0,1 |
@@ -73,7 +75,9 @@ O passo a passo completo, com o teste da VPN e a solução de problemas, está e
 
 **Offline (Fase 1):** cada detector analisa o CSV inteiro da execução.
 
-**Online (Fase 2):** a cada 5 s, cada detector é ajustado numa janela de referência de 60 pontos (5 min), que termina 30 s antes do ponto atual. O limiar é dinâmico: μ + K·σ dos scores da janela, com K = 2. Para testar sem cluster:
+**Avaliação da Fase 1:** offline e online são pontuados contra o mesmo gabarito, ignorando os primeiros 60 s de cada execução (acomodação, `EVAL_SKIP_SECONDS`; os detectores veem a série inteira; nenhum pico é cortado, a 1ª anomalia começa aos 150/175 s). A Fase 3 não usa esse descarte.
+
+**Online (Fase 2):** a cada 5 s, cada detector é ajustado numa janela de referência de 60 pontos (5 min), que termina 30 s antes do ponto atual. O limiar é dinâmico: μ + K·σ dos scores da janela, com K = 2 (IF, LOF, AE, LSTM; EWMA e DBSCAN têm régua própria), com σ mínimo de 5% da média nas notas e de 1% nos sinais de entrada. Regras online e offline lado a lado: [docs/DETECTOR_ONLINE.md](docs/DETECTOR_ONLINE.md). Para testar sem cluster:
 
 ```bash
 make online-replay CSV=datasets_qualificacao/burst_run1.csv
@@ -134,13 +138,14 @@ k8s/monitoring/         Prometheus, Grafana (2 dashboards), kube-state-metrics
 k8s/detector/           detector online (template)
 k8s/adapter/            Prometheus Adapter (métrica externa anomaly_level)
 k8s/hpa/                hpa-cpu.yaml (modos A/C), hpa-anomaly.yaml (modos B/D)
-scripts/                imagem de análise: detectors, online_detector, export_metrics,
-                        k6_summary, hpa_metrics, stats_tlc, selftest
+scripts/                imagem de análise: detectors, lstm_model, online_detector, export_metrics,
+                        k6_summary, hpa_metrics, stats_tlc, check_inicio, detector_ciclo, selftest
 datasets_qualificacao/  9 CSVs reais da qualificação
 results_qualificacao/   resultados da qualificação (3 e 5 detectores, online, estatística)
-docs/                   runbook VPS+VPN, HPA (Fase 3), detector online, Grafana, pilotos, comandos, changelog, Git, READMEs anteriores
+docs/                   runbook VPS+VPN, HPA (Fase 3), detector online, Grafana, pilotos, decisões de método, comandos, changelog, Git, READMEs anteriores
 ```
 
 O que mudou em relação à versão anterior e por quê: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+Decisões de método (tomadas e em aberto, com data e motivo): [docs/DECISOES_METODO.md](docs/DECISOES_METODO.md).
 Execuções de teste (pilotos) e as decisões que motivaram: [docs/PILOTOS.md](docs/PILOTOS.md). **Regra:** cada execução de teste relevante é registrada em `docs/PILOTOS.md`; os dados dos pilotos não entram nos resultados da dissertação.
 Como enviar para o GitHub: [docs/GIT.md](docs/GIT.md).
