@@ -26,6 +26,8 @@ DETECTOR_SIGMA_FLOOR ?= 0.05
 DETECTOR_FEATURE_FLOOR ?= 0.01
 # acomodação inicial da avaliação da Fase 1 (s fora da pontuação; 0 = avaliação antiga)
 EVAL_SKIP_SECONDS ?= 60
+# tolerância de atraso após cada pico, só nas métricas secundárias (f1_tol etc.; 0 = sem)
+EVAL_TOLERANCE_SECONDS ?= 15
 # .env antigo sem as variáveis do LSTM (6º detector): padrões fixos da arquitetura
 LSTM_SEQ_LEN ?= 12
 LSTM_HIDDEN  ?= 16
@@ -48,7 +50,7 @@ ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
 	-v $(CURDIR)/datasets:/datasets -v $(CURDIR)/datasets_hpa:/datasets_hpa \
 	-v $(CURDIR)/results:/results -e PROMETHEUS_URL=$(PROM_URL) -e NAMESPACE=$(NAMESPACE) \
 	-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) \
-	-e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) \
+	-e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) -e EVAL_TOLERANCE_SECONDS=$(EVAL_TOLERANCE_SECONDS) \
 	$(ANALYSIS_IMAGE)
 
 # =============================================================================

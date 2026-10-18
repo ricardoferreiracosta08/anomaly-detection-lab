@@ -18,6 +18,8 @@ Verifica:
   10. o piso relativo na padronização das entradas (DETECTOR_FEATURE_FLOOR)
   11. a acomodação inicial da avaliação (EVAL_SKIP_SECONDS): fora da pontuação,
       nenhum pico cortado, e 0 s reproduz a avaliação antiga
+  12. o teste pareado da Fase 1 (decisão 1): IC da diferença por execução
+  13. a tolerância de atraso após cada pico (EVAL_TOLERANCE_SECONDS, decisão 6)
 """
 import json
 import logging
@@ -170,6 +172,45 @@ class T(unittest.TestCase):
         # duas partes: [0, 60) acomodação e [60, 1ª anomalia)
         self.assertEqual((r["pontos_1"], r["pontos_2"]), (12, int(((off >= 60) & (off < first)).sum())))
         self.assertEqual((r["online_IF_1"], r["online_IF_2"]), (12, 0))
+
+    def test_paired_test(self):
+        # decisão 1: IC da média das diferenças por execução (mesma fórmula do IC da média)
+        from scipy import stats as st
+        from stats_tlc import paired_test, t_test
+        base = np.array([0.20, 0.55, 0.35, 0.70, 0.45, 0.30, 0.60, 0.25, 0.50, 0.40])   # execuções "difíceis" e "fáceis"
+        a = base + np.array([0.04, 0.06, 0.05, 0.03, 0.05, 0.06, 0.04, 0.05, 0.06, 0.04])
+        r = paired_test(a, base)
+        d = a - base
+        H = st.t.ppf(0.975, 9) * d.std(ddof=1) / np.sqrt(10)
+        self.assertAlmostEqual(r["dif"], d.mean(), places=12)
+        self.assertAlmostEqual(r["IC_dif_inf"], d.mean() - H, places=12)
+        self.assertEqual((r["gl"], r["n"], r["metodo"]), (9, 10, "pareado"))
+        self.assertEqual(r["conclusao"], "médias diferentes")             # pareado vê a melhora constante
+        self.assertEqual(t_test(a, base)["conclusao"], "sem diferença significativa")  # o não pareado não vê
+        self.assertEqual(paired_test(a[:1], base[:1]), {})                 # N < 2: sem teste
+        # pairwise alinha pela execução, mesmo com as linhas fora de ordem
+        import pandas as pd
+        from stats_tlc import pairwise
+        df = pd.DataFrame({"scenario": "burst", "detector": ["X"] * 10 + ["Y"] * 10,
+                           "_rep": list(range(1, 11)) + list(range(10, 0, -1)),
+                           "f1": list(a) + list(base[::-1])})
+        rp = pairwise(df, "scenario", "detector", "f1", paired_on="_rep").iloc[0]
+        self.assertAlmostEqual(rp["dif"], d.mean(), places=12)
+
+    def test_eval_tolerance(self):
+        # decisão 6: pontos normais até EVAL_TOLERANCE_SECONDS após o fim de cada pico não contam (secundária)
+        import detectors as d
+        off = np.arange(0, 100, 5.0)
+        lab = ((off >= 40) & (off <= 55)).astype(int)                    # 1 pico: 40–55 s
+        alert = ((off >= 45) & (off <= 65)).astype(int)                  # chega 5 s atrasado e transborda até 65 s
+        keep = d.tolerance_mask(lab, off, 15)
+        self.assertEqual(list(off[~keep]), [60.0, 65.0, 70.0])           # (55, 70] fora
+        m0 = d.compute_metrics(lab, alert, off)
+        mt = d.compute_metrics(lab[keep], alert[keep], off[keep])
+        self.assertEqual(m0["fp"], 2)                                    # sem tolerância: 60 e 65 s são FP
+        self.assertEqual(mt["fp"], 0)                                    # com tolerância: deixam de ser
+        self.assertEqual(mt["tp"], m0["tp"])                             # os acertos não mudam
+        self.assertTrue(d.tolerance_mask(lab, off, 0).all())             # 0 = sem tolerância
 
     def test_eval_skip(self):
         # acomodação inicial: pontos com offset < EVAL_SKIP_SECONDS fora da pontuação;

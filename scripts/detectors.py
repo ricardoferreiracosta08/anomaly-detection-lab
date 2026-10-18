@@ -33,6 +33,14 @@ oscilação de latência sistemática logo após a troca aquecimento → roteiro
 docs/PILOTOS.md; docs/DECISOES_METODO.md, item 11). EVAL_SKIP_SECONDS=0 reproduz a
 avaliação antiga (e a da qualificação).
 
+Tolerância de atraso (EVAL_TOLERANCE_SECONDS, padrão 15; decisão 6 de
+docs/DECISOES_METODO.md): métrica SECUNDÁRIA. Além do F1 principal (sem tolerância),
+calcula precision_tol, recall_tol e f1_tol ignorando os pontos normais até
+EVAL_TOLERANCE_SECONDS depois do fim de cada janela anômala: um alerta que "transborda"
+por atraso do pipeline online não vira falso positivo. Calculada para todos os
+detectores; o relatório a mostra para os online. 15 s = 3 passos de 5 s (atraso medido
+do pipeline: 2–3 ciclos, docs/DETECTOR_ONLINE.md).
+
 Uso:
   python scripts/detectors.py --input datasets/burst_run1.csv --output results/
   python scripts/detectors.py --input datasets/ --output results/  # processa todos CSVs
@@ -55,6 +63,7 @@ from typing import Optional
 import numpy as np
 
 EVAL_SKIP_SECONDS = float(os.environ.get("EVAL_SKIP_SECONDS", "60") or 0)
+EVAL_TOLERANCE_SECONDS = float(os.environ.get("EVAL_TOLERANCE_SECONDS", "15") or 0)
 
 # ── Tentar importar sklearn; informar se ausente ────────────────────────────
 try:
@@ -89,6 +98,10 @@ class DetectionResult:
     total_points: int
     anomaly_ratio: float
     eval_skip_s: float = 0.0   # segundos iniciais fora da avaliação (acomodação)
+    precision_tol: float = 0.0  # métricas secundárias com tolerância de atraso após cada pico
+    recall_tol: float = 0.0
+    f1_tol: float = 0.0
+    eval_tol_s: float = 0.0
 
 
 # =============================================================================
@@ -486,8 +499,22 @@ def eval_mask(offsets: np.ndarray, skip: float) -> np.ndarray:
     return np.nan_to_num(offsets, nan=0.0) >= skip
 
 
+def tolerance_mask(labels: np.ndarray, offsets: np.ndarray, tol: float) -> np.ndarray:
+    """True nos pontos que ficam na avaliação com tolerância: exclui os pontos NORMAIS
+    em (fim da janela anômala, fim + tol]. O alerta tardio ali não conta como erro."""
+    keep = np.ones(len(labels), dtype=bool)
+    if tol <= 0:
+        return keep
+    off = np.nan_to_num(offsets, nan=0.0)
+    ends = [off[i] for i in range(len(labels)) if labels[i] == 1 and (i + 1 == len(labels) or labels[i + 1] == 0)]
+    for e in ends:
+        keep &= ~((labels == 0) & (off > e) & (off <= e + tol))
+    return keep
+
+
 def run_detectors(csv_path: str, selected: list, how: str = "zero",
-                  eval_skip: float = EVAL_SKIP_SECONDS) -> list[DetectionResult]:
+                  eval_skip: float = EVAL_SKIP_SECONDS,
+                  eval_tol: float = EVAL_TOLERANCE_SECONDS) -> list[DetectionResult]:
     """Executa os detectores selecionados sobre um CSV e retorna resultados.
     Os detectores veem a série inteira; a pontuação ignora offset < eval_skip."""
     fname = Path(csv_path).stem
@@ -507,6 +534,8 @@ def run_detectors(csv_path: str, selected: list, how: str = "zero",
     if cut_anom:   # nunca deve ocorrer: o gabarito começa aos 150/175 s
         print(f"  ⚠ {cut_anom} ponto(s) anômalo(s) do gabarito caem antes de {eval_skip:.0f} s e ficam fora da avaliação")
     y, ts = data["labels"][keep], data["timestamps"][keep]
+    keep_tol = keep & tolerance_mask(data["labels"], data["offsets"], eval_tol)   # secundária
+    y_t, ts_t = data["labels"][keep_tol], data["timestamps"][keep_tol]
     n = int(keep.sum())
     n_anom = int(np.sum(y))
     print(f"  Pontos avaliados: {n} de {data['n_points']} (acomodação: {eval_skip:.0f} s) | "
@@ -522,10 +551,12 @@ def run_detectors(csv_path: str, selected: list, how: str = "zero",
         print(f"  [{i}/{len(jobs)}] {desc}...")
         pred = fn(data)   # o detector vê a série inteira
         m = compute_metrics(y, np.asarray(pred)[keep], ts)
+        mt = compute_metrics(y_t, np.asarray(pred)[keep_tol], ts_t)
         print(f"    F1={m['f1']:.3f} | Prec={m['precision']:.3f} | Rec={m['recall']:.3f} | MTTD={m['mttd_seconds']:.1f}s")
         results.append(DetectionResult(
             detector=name, scenario=scenario, run=run,
-            total_points=n, anomaly_ratio=round(n_anom / max(n, 1), 3), eval_skip_s=eval_skip, **m
+            total_points=n, anomaly_ratio=round(n_anom / max(n, 1), 3), eval_skip_s=eval_skip,
+            precision_tol=mt["precision"], recall_tol=mt["recall"], f1_tol=mt["f1"], eval_tol_s=eval_tol, **m
         ))
 
     return results
@@ -626,6 +657,8 @@ if __name__ == "__main__":
                         help=f"Lista separada por vírgula (padrão: {','.join(DETECTORS)})")
     parser.add_argument("--eval-skip", type=float, default=EVAL_SKIP_SECONDS,
                         help="segundos iniciais fora da avaliação (acomodação; padrão EVAL_SKIP_SECONDS ou 60)")
+    parser.add_argument("--eval-tol", type=float, default=EVAL_TOLERANCE_SECONDS,
+                        help="tolerância de atraso após cada pico, métrica secundária (padrão EVAL_TOLERANCE_SECONDS ou 15)")
     parser.add_argument("--impute", choices=["ffill", "zero"], default="zero",
                         help="Lacunas do Prometheus: zero (padrão, igual à qualificação) ou ffill")
     args = parser.parse_args()
@@ -639,7 +672,7 @@ if __name__ == "__main__":
     all_results = []
 
     if input_path.is_file():
-        all_results.extend(run_detectors(str(input_path), selected, args.impute, args.eval_skip))
+        all_results.extend(run_detectors(str(input_path), selected, args.impute, args.eval_skip, args.eval_tol))
     elif input_path.is_dir():
         csvs = sorted(input_path.glob("*.csv"))
         if not csvs:
@@ -647,7 +680,7 @@ if __name__ == "__main__":
             sys.exit(1)
         print(f"Encontrados {len(csvs)} CSVs para processar")
         for csv_file in csvs:
-            all_results.extend(run_detectors(str(csv_file), selected, args.impute, args.eval_skip))
+            all_results.extend(run_detectors(str(csv_file), selected, args.impute, args.eval_skip, args.eval_tol))
     else:
         print(f"ERRO: {input_path} não existe")
         sys.exit(1)

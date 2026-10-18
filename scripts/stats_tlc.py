@@ -13,6 +13,14 @@ Procedimento (por célula = cenário × detector, ou cenário × modo do HPA):
   IC   = Ȳ ± H;  precisão relativa = H/Ȳ
   H_tDP = t · S  (forma literal dos slides 52/55, mantida para comparação)
 
+Comparações:
+  Fase 1 — PAREADO (decisão 1, docs/DECISOES_METODO.md): detectores e formas (offline,
+           online) saem das MESMAS execuções. Para cada execução, d = Y_A − Y_B; com
+           as N diferenças, IC da média de d pela mesma fórmula (d̄ ± t·S_d/√N, gl = N−1).
+           Se o IC não contém o 0, as médias são diferentes. t = d̄/(S_d/√N), p bilateral.
+  Fase 3 — NÃO PAREADO [AR 66]: A, B e C são execuções independentes;
+           t = (X̄A − X̄B)/√(varA/nA + varB/nB), gl = nA + nB − 2; + teste visual [AR 64].
+
 Uso:
   python stats_tlc.py phase1 --detections /results/detection_results.csv \\
          --k6 /results/k6_summary.csv --out /results/stats/phase1
@@ -102,7 +110,30 @@ def t_test(a, b, alpha=ALPHA):
     else:
         vis = "Caso 3: sobrepostos, médias fora"
     return dict(media_A=a.mean(), media_B=b.mean(), dif=a.mean() - b.mean(), t=t, gl=gl, t_tab=ttab, p=p,
-                visual=vis, conclusao="médias diferentes" if abs(t) > ttab else "sem diferença significativa")
+                visual=vis, conclusao="médias diferentes" if abs(t) > ttab else "sem diferença significativa",
+                metodo="não pareado", n=min(a.size, b.size), IC_dif_inf=np.nan, IC_dif_sup=np.nan)
+
+
+def paired_test(a, b, alpha=ALPHA):
+    """Teste pareado (decisão 1, Fase 1): a e b alinhados pela mesma execução.
+    IC da média das diferenças d = a − b: d̄ ± t(1−α/2; N−1)·S_d/√N (mesma fórmula do IC da média)."""
+    a = np.asarray(a, float); b = np.asarray(b, float)
+    ok = np.isfinite(a) & np.isfinite(b)
+    a, b = a[ok], b[ok]
+    N = a.size
+    if N < 2:
+        return {}
+    d = a - b
+    Sd = d.std(ddof=1)
+    ttab = stats.t.ppf(1 - alpha / 2, N - 1)
+    H = ttab * Sd / np.sqrt(N)
+    t = d.mean() / (Sd / np.sqrt(N)) if Sd > 0 else (0.0 if d.mean() == 0 else np.inf * np.sign(d.mean()))
+    p = 2 * stats.t.sf(abs(t), N - 1) if np.isfinite(t) else 0.0
+    lo, hi = d.mean() - H, d.mean() + H
+    differ = (lo > 0 or hi < 0) if Sd > 0 else d.mean() != 0
+    return dict(media_A=a.mean(), media_B=b.mean(), dif=d.mean(), t=t, gl=N - 1, t_tab=ttab, p=p,
+                visual=f"IC da diferença [{lo:.3f}; {hi:.3f}]", conclusao="médias diferentes" if differ else "sem diferença significativa",
+                metodo="pareado", n=N, IC_dif_inf=lo, IC_dif_sup=hi)
 
 
 def slide55():
@@ -125,18 +156,25 @@ def table(df, groups, metrics):
     return pd.DataFrame(rows)
 
 
-def pairwise(df, scen_col, group_col, metric, pairs=None):
+def pairwise(df, scen_col, group_col, metric, pairs=None, paired_on=None):
+    """Pares de grupos por cenário. paired_on=<coluna da execução> → teste pareado (Fase 1),
+    alinhando A e B pela mesma execução; None → t não pareado (Fase 3)."""
     rows = []
     for s, g in df.groupby(scen_col, sort=False):
         levels = list(dict.fromkeys(g[group_col]))
         for a, b in (pairs or itertools.combinations(levels, 2)):
             if a in levels and b in levels:
-                r = t_test(g[g[group_col] == a][metric], g[g[group_col] == b][metric])
+                ga, gb = g[g[group_col] == a], g[g[group_col] == b]
+                if paired_on:
+                    m = ga[[paired_on, metric]].merge(gb[[paired_on, metric]], on=paired_on, suffixes=("_A", "_B"))
+                    r = paired_test(m[metric + "_A"], m[metric + "_B"])
+                else:
+                    r = t_test(ga[metric], gb[metric])
                 if r:
                     rows.append({scen_col: s, "metrica": metric, "A": a, "B": b, **r})
     # com N < 2 por grupo não há teste t: tabela vazia, mas com as colunas (o relatório filtra por elas)
     return pd.DataFrame(rows, columns=[scen_col, "metrica", "A", "B", "media_A", "media_B", "dif", "t", "gl",
-                                       "t_tab", "p", "visual", "conclusao"])
+                                       "t_tab", "p", "visual", "conclusao", "metodo", "n", "IC_dif_inf", "IC_dif_sup"])
 
 
 # =============================================================================
@@ -285,9 +323,11 @@ def phase1(det_path, k6_path, out):
     det["detector"] = det["detector"].astype(str); det["scenario"] = det["scenario"].astype(str)
 
     os.makedirs(out, exist_ok=True)
-    metrics = ["f1", "precision", "recall", "mttd_seconds"]
+    metrics = ["f1", "precision", "recall", "mttd_seconds"] + [m for m in ("f1_tol",) if m in det]
     T_det = table(det, ["scenario", "detector"], metrics)
-    T_t = pd.concat([pairwise(det, "scenario", "detector", m) for m in ["f1", "precision", "recall"]], ignore_index=True)
+    # pareado: todos os detectores (e formas) saem das mesmas execuções (decisão 1)
+    T_t = pd.concat([pairwise(det, "scenario", "detector", m, paired_on="_rep") for m in ["f1", "precision", "recall"]],
+                    ignore_index=True)
     sheets = {"0_validacao_slide55": slide55(), "1_IC_detectores": T_det, "2_teste_t": T_t}
 
     nmax = int(det.groupby(["scenario", "detector"]).size().min())
@@ -315,11 +355,21 @@ def phase1(det_path, k6_path, out):
         for r in T_k6.itertuples():
             md.append(f"| {r.scenario} | {r.metrica} | {r.N} | {fmt(getattr(r,'media',np.nan),1)} | {fmt(getattr(r,'H',np.nan),1)} | "
                       f"{fmt(getattr(r,'IC_inf',np.nan),1)} – {fmt(getattr(r,'IC_sup',np.nan),1)} | {fmt(100*getattr(r,'H_sobre_Y',np.nan),1)}% |")
+    if "f1_tol" in det:   # decisão 6: secundária, só para os online
+        tol = det["eval_tol_s"].iloc[0] if "eval_tol_s" in det else float("nan")
+        md += ["", f"## F1 online com tolerância de atraso de {fmt(tol, 0)} s (secundário; decisão 6)", "",
+               "Pontos normais até a tolerância depois do fim de cada pico não contam: o alerta que chega atrasado "
+               "pelo pipeline online não vira falso positivo. **O F1 principal é o da seção acima, sem tolerância.**", ""]
+        md += md_ic_table(T_det[T_det.detector.str.endswith("_online")], "detector", "f1_tol")
     f1t = T_t[T_t.metrica == "f1"]
-    md += ["", "## Teste t (F1, slide 66) e teste visual (slide 64)", "",
-           "| cenário | par | t | gl | p | visual | conclusão |", "|---|---|---|---|---|---|---|"]
+    md += ["", "## Teste t pareado (F1): IC da diferença por execução (decisão 1)", "",
+           "Mesmas execuções para todos os detectores e formas: d = F1(A) − F1(B) em cada execução; "
+           "IC 95% de d̄ = d̄ ± t·S_d/√N (gl = N − 1). Diferença significativa se o IC não contém o 0.", "",
+           "| cenário | par | N | dif (A − B) | IC95% da diferença | t | gl | p | conclusão |",
+           "|---|---|---|---|---|---|---|---|---|"]
     for r in f1t.itertuples():
-        md.append(f"| {r.scenario} | {r.A} × {r.B} | {fmt(r.t,2)} | {r.gl} | {fmt(r.p,4)} | {r.visual.split(':')[0]} | {r.conclusao} |")
+        md.append(f"| {r.scenario} | {r.A} × {r.B} | {r.n} | {fmt(r.dif)} | {fmt(r.IC_dif_inf)} – {fmt(r.IC_dif_sup)} | "
+                  f"{fmt(r.t,2)} | {r.gl} | {fmt(r.p,4)} | {r.conclusao} |")
     if f1t.empty:
         md += ["", "Sem teste t: é preciso N ≥ 2 execuções por detector e cenário."]
     md += ["", "Com mais de 2 detectores por cenário, os testes par a par são exploratórios: o slide 65 indica ANOVA antes dos pares."]
