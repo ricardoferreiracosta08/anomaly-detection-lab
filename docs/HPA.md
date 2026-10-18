@@ -77,7 +77,15 @@ Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro de
 ## 3. Escolha do detector do modo B (pré-registro)
 
 1. Rode a Fase 1 completa (`make experiment`).
-2. Escolha o detector pelo **F1 online** (colunas `<DET>_online` em `results/detection_results.csv` e `results/stats/phase1/relatorio.md`), olhando os 3 cenários. O critério deve estar escrito **antes** de olhar os resultados da Fase 3.
+2. Escolha o detector pelo **F1 online** (linhas `<DET>_online` em `results/stats/phase1/relatorio.md` e na aba `1_IC_detectores` de `estatistica.xlsx`; dados brutos em `results/detection_results.csv`), com a regra abaixo, **registrada em 16/out/2026, antes da Fase 1**:
+
+   > **Regra de escolha do detector do modo B.**
+   > 1. Para cada detector, calcule a média do F1 **online** em cada cenário (burst, rampup, shift) e depois a **média das 3 médias**: cada cenário pesa igual, e ninguém ganha por ser ótimo numa carga só.
+   > 2. Escolhe-se o de **maior média das 3 médias**.
+   > 3. **Empate:** se a diferença entre o 1º e o 2º **não for significativa em nenhum dos 3 cenários** (teste t adotado na decisão 1 de `DECISOES_METODO.md`, α = 0,05), desempata o **menor MTTD online** (média das 3 médias). Se o 1º for significativamente melhor em pelo menos um cenário, ele fica.
+   > 4. **Requisito:** o detector precisa ter **p95 do ciclo < 2,5 s** (`make detector-ciclo`; piloto 4: 0,48 s com os 6).
+
+   Por que o MTTD desempata: para o HPA, detectar antes é escalar antes.
 3. Fixe no `.env`: `HPA_B_DETECTOR=<escolhido>`. Pode ser qualquer um dos 6: EWMA, IF, LOF, DBSCAN, AE ou **LSTM** (o 6º, temporal). O `make hpa-mode` recusa um detector fora de `DETECTOR_ALGOS`. Se for o LSTM, confira antes no painel "Saúde do detector" que o p95 do ciclo está bem abaixo de 5 s (piloto 4, [PILOTOS.md](PILOTOS.md)).
 4. Não troque depois de ver a Fase 3. Trocar o detector após ver o resultado invalida o teste estatístico (seria escolher o que deu certo).
 
@@ -104,6 +112,8 @@ Antes de **cada** execução da Fase 3, o `bin/experiment.sh` faz sempre a mesma
 **Por que sobrepor as rampas:** os roteiros começam do zero (rampa de 30 s). Sem sobreposição, a carga caía e voltava na troca, e AE, DBSCAN e LOF alarmavam de 15 a 45 s em todas as execuções do piloto 3.
 
 **Registro:** `results/warmup_log.csv`, uma linha por execução: réplicas ao fim do aquecimento (`at_min` = 1 se no mínimo), `anomaly_level_b` e `items_per_pod` (ex.: `112;108`; devem ser parecidos em todas as execuções do mesmo cenário). Um `anomaly_level_b` ≥ 0,5 indica que o B escalaria logo que aplicado, ou seja, alarme residual do aquecimento; vale olhar junto com `false_scaleups`.
+
+**Acomodação inicial da avaliação (`EVAL_SKIP_SECONDS`): não se aplica à Fase 3.** O descarte dos primeiros 60 s vale só para a pontuação dos detectores na Fase 1 (F1, precisão, recall, MTTD). As métricas do HPA olham os picos (tempo de reação, latência e SLO nas janelas anômalas, que começam aos 150/175 s) e os scale-ups; nenhuma pontua alertas no trecho inicial. O `slo_viol_all_pct` (execução inteira) também não muda: é uma métrica de contexto, não a principal. Ver [DECISOES_METODO.md](DECISOES_METODO.md), item 11.
 
 ### Métricas
 
