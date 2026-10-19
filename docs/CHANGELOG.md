@@ -95,6 +95,13 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (18/out): comparações planejadas e tolerância de 30 s (decisões 2 e 6)
+
+- **Só as comparações planejadas** (decisão 2; `planned_pairs` e `rule_b_ranking` em `stats_tlc.py`): por cenário, 6 offline × online do mesmo detector e 5 do **vencedor da regra do B** × outros online; o vencedor é o 1º pela média das 3 médias do F1 online, **o mesmo nos 3 cenários**. As 66 comparações de todos os pares não são mais geradas (nem como anexo). O relatório mostra o ranking da regra do B e aplica o desempate (menor MTTD online); nova aba `5_regra_B_ranking`; coluna `familia` nos testes.
+- **Tolerância de 30 s** (antes 15 s), **offline e online** no relatório (antes só online). Medição em dados de piloto e da qualificação (nunca da Fase 1): transbordo no replay da qualificação p90 25 s (só sinais); ao vivo no piloto 4, mediana 10–25 s e p90 ~30 s em EWMA/IF; cauda de 72–100 s só nos multivariados (estado do sistema após o escalonamento, não atraso). 30 s = janela dos sinais (`rate[30s]`). Ver `DECISOES_METODO.md`, item 6.
+- **Regra do B esclarecida e aplicada pelo relatório** (`rule_b_choice`): **grupo de empate** = o 1º + todos sem diferença significativa para ele em nenhum cenário; dentro do grupo vence o menor MTTD online. **MTTD:** janelas não detectadas ficam fora da média (já era assim); novas colunas `windows_detected`/`windows_total` em `detection_results.csv` e "janelas detectadas" ao lado do MTTD no ranking. Requisito do ciclo verificado pelo pod (0,48 s com os 6).
+- **`make selftest`:** `test_planned_pairs`, `test_rule_b_tie_group` e `test_count_windows`. Agora 19 testes.
+
 ## Novo (18/out): teste pareado na Fase 1 e tolerância de atraso (decisões 1 e 6)
 
 **Por quê.** As decisões 1 e 6 de [DECISOES_METODO.md](DECISOES_METODO.md) foram adotadas em 16/out (aguardando o orientador) e precisavam estar implementadas antes da Fase 1.

@@ -82,8 +82,11 @@ Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro de
    > **Regra de escolha do detector do modo B.**
    > 1. Para cada detector, calcule a média do F1 **online** em cada cenário (burst, rampup, shift) e depois a **média das 3 médias**: cada cenário pesa igual, e ninguém ganha por ser ótimo numa carga só.
    > 2. Escolhe-se o de **maior média das 3 médias**.
-   > 3. **Empate:** se a diferença entre o 1º e o 2º **não for significativa em nenhum dos 3 cenários** (teste t adotado na decisão 1 de `DECISOES_METODO.md`, α = 0,05), desempata o **menor MTTD online** (média das 3 médias). Se o 1º for significativamente melhor em pelo menos um cenário, ele fica.
-   > 4. **Requisito:** o detector precisa ter **p95 do ciclo < 2,5 s** (`make detector-ciclo`; piloto 4: 0,48 s com os 6).
+   > 3. **Empate:** o **grupo de empate** é o 1º mais **todos** os detectores online cuja diferença para o 1º **não é significativa em nenhum dos 3 cenários** (teste pareado, decisão 1 de `DECISOES_METODO.md`, α = 0,05). Se o grupo tem só o 1º, ele fica. Se tem mais de um, vence o de **menor MTTD online** (média das 3 médias) dentro do grupo, seja ele o 1º, o 2º ou outro.
+   > 4. **MTTD:** numa execução, as janelas anômalas **não detectadas ficam fora da média** (o MTTD só existe onde houve alerta); o número de janelas detectadas (ex.: 96/100 na Fase 1: 3, 4 e 3 janelas por execução × 10) é reportado ao lado, para não premiar quem detecta pouco mas rápido.
+   > 5. **Requisito:** p95 do ciclo < 2,5 s. **Verificado pelo ciclo do pod com os 6 detectores juntos** (piloto 4: 0,48 s): como os 6 rodam no mesmo ciclo, qualquer um cumpre.
+   >
+   > O relatório da Fase 1 aplica a regra sozinho e escreve a escolha (seção "Comparações planejadas").
 
    Por que o MTTD desempata: para o HPA, detectar antes é escalar antes.
 3. Fixe no `.env`: `HPA_B_DETECTOR=<escolhido>`. Pode ser qualquer um dos 6: EWMA, IF, LOF, DBSCAN, AE ou **LSTM** (o 6º, temporal). O `make hpa-mode` recusa um detector fora de `DETECTOR_ALGOS`. Se for o LSTM, confira antes no painel "Saúde do detector" que o p95 do ciclo está bem abaixo de 5 s (piloto 4, [PILOTOS.md](PILOTOS.md)).

@@ -9,11 +9,11 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 | # | Decisão | Afeta | Proposta | Fechar antes de |
 |---|---|---|---|---|
 | 1 | Teste pareado ou não pareado | Fase 1 | **adotada e implementada** (aguarda orientador): pareado na Fase 1, não pareado na Fase 3 | Fase 1 |
-| 2 | Quais comparações fazer | Fase 1 | só as que respondem às perguntas | Fase 1 |
+| 2 | Quais comparações fazer | Fase 1 | **adotada e implementada** (aguarda orientador): 6 offline × online + 5 vencedor da regra do B × outros online, por cenário | Fase 1 |
 | 3 | LSTM no rol e como candidato ao B | Fases 1 e 3 | **adotada** (aguarda orientador): manter; piloto 4: ciclo p95 0,48 s | Fase 1 |
 | 4 | Estado inicial da aplicação | Fases 1 e 3 | **adotada** (aguarda orientador): reiniciar com 100 itens | Fase 1 |
 | 5 | Detectores no cluster | Fases 1 e 3 | **adotada** (aguarda orientador): Fase 1 num pod; Fase 3 só o do B | Fase 1 |
-| 6 | Tolerância de atraso na avaliação do online | Fase 1 | **adotada e implementada** (aguarda orientador): sem (principal) e com 15 s (secundário); **valor a confirmar** | Fase 1 |
+| 6 | Tolerância de atraso na avaliação | Fase 1 | **adotada e implementada** (aguarda orientador): sem (principal) e com **30 s** (secundário), offline e online | Fase 1 |
 | 7 | Detector do modo B e métrica principal | Fase 3 | **regra registrada em 16/out/2026** (ver item 7); métrica: tempo de reação | Fase 3 |
 | 8 | Valor do SLO (500 ms) | Fase 3 | manter + sensibilidade com outros limites | Fase 3 |
 | 9 | Ameaças à validade suficientes? | escrita | declarar as limitações | escrita |
@@ -54,6 +54,12 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 **Proposta.** (a), definida antes da Fase 1.
 
+**Adotada em 18/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`planned_pairs` e `rule_b_ranking` em `scripts/stats_tlc.py`). Só estas comparações, com o teste pareado (decisão 1), **iguais em todos os cenários**:
+1. **offline × online do mesmo detector:** 6 por cenário (EWMA × EWMA_online, …, LSTM × LSTM_online);
+2. **o vencedor da regra do B × cada um dos outros 5 online:** 5 por cenário. "Vencedor" = o 1º pela regra pré-registrada (maior **média das 3 médias** do F1 online), **o mesmo detector nos 3 cenários**; não se escolhe um "melhor" por cenário. Assim as 5 comparações respondem a uma pergunta só: o escolhido para o B é de fato melhor que os outros, ou empata? O par 1º × 2º, que a regra usa no desempate, está incluído.
+
+**Não são geradas** as 66 comparações de todos os pares, nem como anexo: o relatório só contém o que foi planejado. O relatório também mostra o ranking da regra do B e aplica o desempate (menor MTTD online) quando 1º × 2º não diferem em nenhum cenário. `make selftest` (`test_planned_pairs`): 11 comparações por cenário e nenhuma outra; o mesmo vencedor nos 3 cenários, mesmo quando outro detector vence um cenário sozinho.
+
 ### 3. LSTM no rol e como candidato ao modo B
 
 **Situação.** Implementado offline e online. No replay dos dados da qualificação (N = 3), o F1 ficou burst 0,61, rampup 0,45 e shift 0,36, empatado com AE e DBSCAN.
@@ -92,14 +98,23 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 ### 6. Tolerância de atraso na avaliação do online (Fase 1)
 
-**Situação.** O alerta online chega alguns segundos depois do início real do pico e pode "transbordar" para depois do fim. Isso conta como erro, mesmo quando o detector acertou.
+**Situação.** O alerta chega alguns segundos depois do início real do pico e pode "transbordar" para depois do fim. Isso conta como erro, mesmo quando o detector acertou. Dois atrasos se somam: os **sinais** (latência p95 e taxa são `rate[30s]`: continuam altos até ~30 s depois do fim do pico) e, no online, o **pipeline** (consulta, publicação, coleta).
 
 **Proposta.** Reportar o F1 online sem tolerância (principal) e com uma tolerância fixa após o fim do pico (secundário). O valor da tolerância é fixado antes.
 
 **Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`tolerance_mask` em `scripts/detectors.py`):
 - **Principal:** F1, precisão, recall e MTTD **sem tolerância** (como sempre).
-- **Secundário:** `f1_tol`, `precision_tol` e `recall_tol`, com os pontos **normais** até `EVAL_TOLERANCE_SECONDS` depois do fim de cada janela anômala **fora da conta**: o alerta que chega atrasado pelo pipeline não vira falso positivo. Calculado para todos os detectores; o relatório da Fase 1 mostra para os online.
-- **Valor proposto: 15 s** (3 passos de 5 s), pelo atraso medido do pipeline online (2–3 ciclos; `DETECTOR_ONLINE.md`, seção 5). **A confirmar com o orientador antes da Fase 1**; depois, não muda.
+- **Secundário:** `f1_tol`, `precision_tol` e `recall_tol`, com os pontos **normais** até `EVAL_TOLERANCE_SECONDS` depois do fim de cada janela anômala **fora da conta**. **Offline e online**, calculado e reportado para todos, para a comparação offline × online ser justa.
+- **Valor: 30 s — adotado em 18/out/2026 (Ricardo); aguardando confirmação do orientador.** Depois de confirmado, não muda. Medido em dados de **piloto e da qualificação, nunca da Fase 1**: segundos de alerta contínuo depois do fim de cada pico.
+
+  | Fonte | Detectores | mediana | p90 | máx |
+  |---|---|---|---|---|
+  | piloto 4, online **ao vivo** (9 janelas/detector) | EWMA_online · IF_online | 10 · 20 s | 30 · 31 s | 30 · 35 s |
+  | | AE · DBSCAN · LOF · LSTM online | 25 · 20 · 15 · 15 s | 82 · 72 · 88 · 100 s | 90–100 s |
+  | qualificação, **replay** (só o atraso dos sinais; 30 janelas/detector) | todos os 6 online (180 janelas) | 0 s | **25 s** (p75 10 s) | 135 s |
+  | piloto 4, offline | AE, DBSCAN, IF, LOF, LSTM · EWMA | 0 s · 70 s | 0–20 s · 81 s | — |
+
+  **Por que 30 s:** (1) é a janela dos sinais (`rate[30s]`): até 30 s depois do fim, as entradas ainda carregam o pico, por construção; (2) cobre o p90 do transbordo causado só pelos sinais (replay: 25 s), a mediana do online ao vivo (10–25 s) e o p90 dos detectores de atraso puro (EWMA, IF: ~30 s). **Por que não o p90 total (~100 s):** a cauda longa aparece só nos multivariados (que somam memória e CPU de todos os pods) e no EWMA offline (base fixa nos primeiros 150 s): é o estado do sistema depois do escalonamento (pods extras ainda de pé), não atraso; e no burst o intervalo normal entre picos é de 120 s, então 100 s apagaria quase todo o trecho normal. A cauda fica na avaliação, como achado.
 - `EVAL_TOLERANCE_SECONDS=0` → as métricas secundárias ficam iguais às principais (verificado: 54/54).
 
 ### 7. Detector do modo B e métrica principal (pré-registro)
@@ -108,8 +123,11 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 - **Métrica principal:** tempo de reação.
 - **Detector — regra registrada em 16/out/2026 (Ricardo), antes da Fase 1** (texto completo em `docs/HPA.md`, seção 3):
   1. maior **média das 3 médias** do F1 **online** (burst, rampup, shift; cada cenário pesa igual);
-  2. **empate** = diferença entre o 1º e o 2º não significativa em **nenhum** dos 3 cenários (teste t adotado na decisão 1, α = 0,05) → desempata o **menor MTTD online**; se o 1º for significativamente melhor em pelo menos um cenário, ele fica;
-  3. **requisito:** p95 do ciclo do detector < 2,5 s (`make detector-ciclo`).
+  2. **grupo de empate** (esclarecido em 18/out/2026) = o 1º + **todos** os detectores online cuja diferença para o 1º não é significativa em **nenhum** dos 3 cenários (teste pareado, decisão 1, α = 0,05). Grupo só com o 1º → o 1º. Grupo maior → vence o **menor MTTD online** (média das 3 médias) dentro do grupo, mesmo que seja o 3º ou outro;
+  3. **MTTD** (esclarecido em 18/out/2026): numa execução, janelas não detectadas ficam **fora da média**; o número de janelas detectadas é reportado ao lado (`windows_detected`/`windows_total`);
+  4. **requisito:** p95 do ciclo do detector < 2,5 s. **Verificado pelo ciclo do pod (0,48 s com os 6, piloto 4)**: os 6 rodam no mesmo ciclo, então qualquer um cumpre.
+
+  O relatório da Fase 1 aplica a regra (`rule_b_choice` em `stats_tlc.py`) e escreve a escolha; `make selftest` testa um grupo de 3 em que o 3º vence pelo MTTD.
 
   Falta só a confirmação do orientador; o texto não muda depois de ver os resultados da Fase 1.
 

@@ -50,7 +50,7 @@ Como ler a degustação:
 - **Só prova que o caminho funciona.** Com N = 1, o relatório mostra a média e "—" em DP, IC e Shapiro, e avisa que não há teste t. É o esperado. Os números **não** valem para a dissertação.
 - **Online abaixo do offline é esperado.** O offline vê a execução inteira (limite superior); o online só vê o passado e chega com atraso (consulta ao Prometheus + publicação + novo scrape). O online tende a trocar precisão por recall.
 - **O replay separa as causas.** Compare o F1 do `online-replay` com o `<DET>_online` do `experiment-quick`: se o replay ficar bem acima, a perda vem do atraso do cluster, não dos detectores. Referência da qualificação (replay, burst, média de 3): AE 0,61 · DBSCAN 0,60 · IF 0,46 · LOF 0,39 · EWMA 0,34.
-- **Decida antes da rodada longa, com o orientador:** se o online será avaliado com tolerância de atraso ou não. Não decida depois de ver os resultados finais, e não reajuste o K (`DETECTOR_K_SIGMA`) olhando a Fase 1 definitiva.
+- **Confirme antes da rodada longa, com o orientador,** as decisões adotadas em `docs/DECISOES_METODO.md` (teste pareado, comparações planejadas, tolerância de 30 s, acomodação de 60 s). Não mude nada depois de ver os resultados finais, e não reajuste o K (`DETECTOR_K_SIGMA`) olhando a Fase 1 definitiva.
 
 **Antes da rodada longa, passe pelo [Checklist antes do experimento definitivo](#checklist-antes-do-experimento-definitivo).** Ele inclui apagar a degustação (senão o `make experiment` a conta como repetição 1 e a pula):
 

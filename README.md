@@ -89,7 +89,8 @@ O pipeline segue o material da disciplina (Análise de Resultados, slides 49–6
 
 - **IC da média:** cada execução gera um valor Yi (F1, p95 do k6, tempo de reação…). Para cada célula, IC = Ȳ ± t(0,975; N−1)·S/√N. A forma t·S dos slides 52/55 também vai na tabela, na coluna `H_tDP`.
 - **Comparação:** na **Fase 1, teste pareado** (detectores e formas saem das mesmas execuções): IC 95% da diferença por execução, d̄ ± t·S_d/√N, com o p-valor. Na **Fase 3, t de Student não pareado** (slide 66), com o p-valor, mais o teste visual de sobreposição dos ICs (slide 64).
-- **F1 online com tolerância de atraso** (secundário): pontos normais até 15 s depois do fim de cada pico não contam (`EVAL_TOLERANCE_SECONDS`); o F1 principal é sem tolerância.
+- **Só as comparações planejadas** (Fase 1): offline × online do mesmo detector e o vencedor da regra do B contra os outros online, por cenário.
+- **F1 com tolerância de atraso** (secundário, offline e online): pontos normais até 30 s depois do fim de cada pico não contam (`EVAL_TOLERANCE_SECONDS`); o F1 principal é sem tolerância.
 - **Diagnósticos:** Shapiro-Wilk por célula, como conferência da normalidade, e replicações necessárias para H/Ȳ ≤ 10% e ≤ 20% (slides 58–59).
 - **Validação:** a planilha reproduz o exemplo do slide 55 (aba `0_validacao_slide55`).
 

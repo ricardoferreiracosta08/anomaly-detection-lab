@@ -103,11 +103,11 @@ Junta os resumos do k6 de cada execução em `results/k6_summary.csv`: média, m
 
 ### `make stats`
 Calcula a estatística sobre os resultados que já existem e gera `results/stats/phase1/`:
-- `relatorio.md`: resumo legível, com o IC do F1 por detector e cenário, o **teste pareado** entre detectores (IC da diferença por execução) e o F1 online **com tolerância de atraso** (secundário);
+- `relatorio.md`: resumo legível, com o IC do F1 por detector e cenário, o ranking da **regra do B**, **só as comparações planejadas** com teste pareado (offline × online do mesmo detector; vencedor da regra do B × outros online) e o F1 **com tolerância de atraso** (secundário, offline e online);
 - `estatistica.xlsx`: uma aba por análise;
 - figuras: IC do F1, box-plot e p95 do k6.
 
-O `detection_results.csv` traz, além das métricas principais, `f1_tol`, `precision_tol` e `recall_tol` (tolerância de `EVAL_TOLERANCE_SECONDS`, 15 s, depois de cada pico; 0 = sem).
+O `detection_results.csv` traz, além das métricas principais, `f1_tol`, `precision_tol` e `recall_tol` (tolerância de `EVAL_TOLERANCE_SECONDS`, 30 s, depois de cada pico; 0 = sem).
 
 ### `make analyze`
 `detect` + `k6-summary` + `stats` de uma vez. É o que o `make experiment` chama no final.
