@@ -162,7 +162,7 @@ Se a anomalia dura mais que o gap + a janela, ela entra na referência e o detec
 
 ### LSTM: pouco dado na janela
 
-A referência tem 60 pontos (5 min); com sequências de 12, sobram ~48 exemplos de treino. É pouco para uma rede neural: ela aprende o padrão de curto prazo, não sazonalidades nem regimes longos. A arquitetura pequena (16 unidades, 30 épocas) é proposital, para não decorar esses poucos exemplos. Aumentar a janela daria mais dados, mas deixaria o detector mais lento para se adaptar (decisão em aberto: janela do detector).
+A referência tem 60 pontos (5 min); com sequências de 12, sobram ~48 exemplos de treino. É pouco para uma rede neural: ela aprende o padrão de curto prazo, não sazonalidades nem regimes longos. A arquitetura pequena (16 unidades, 30 épocas) é proposital, para não decorar esses poucos exemplos. Aumentar a janela daria mais dados, mas deixaria o detector mais lento para se adaptar (janela fixada em 5 min, valor da qualificação; sensibilidade só por replay: `DECISOES_METODO.md`, item 12).
 
 ### Custo da observação
 

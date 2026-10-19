@@ -11,7 +11,7 @@ Registro das execuções de **teste** (antes do experimento definitivo), com a c
 | 1 | `make experiment-quick` (Fase 1, burst, N = 1) | o online ao vivo perde ~0,2 de F1 para o replay, quase tudo em precisão | investigar atraso e falsos alarmes; tolerância de atraso em aberto |
 | 2 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | o B "ganhou" em latência porque escalou **antes** dos picos por alarmes falsos: +48% de custo, tempo de reação indefinido. Confirmado: 53–87% de alertas nos 150 s iniciais, sem anomalia | aquecimento + piso do σ; métrica "réplicas no início do pico" |
 | 3 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, com aquecimento (modo A) e piso 0,05 | alertas iniciais caíram de 53–87% para 0–30%; B sem scale-up falso, reage 10 s antes do A com +1% de custo. Mas B e C tiveram latência **pior** que A (p95 nos picos 975 e 1.200 ms × 465 ms) | confirmado: transiente da troca (15–45 s), app com 40× mais itens (viés de ordem) e salto da memória virando ~50σ (140–145 s no A). **Decidido:** reiniciar a app, sobrepor as rampas, piso nas entradas |
-| 4 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, configuração final + LSTM (6 detectores) | ciclo p95 0,48 s, CPU do detector ~0,03 núcleo, 0 reinícios; app com 100 itens em todas; latência de A, B e C comparável de novo (414–539 ms); A com **0** alertas iniciais nos 6, mas B e C com 7–30% | 1º episódio de latência logo após a troca (nas 3, sistemático) e 2º num pod só (ruído do ambiente). **Decidido:** acomodação de 60 s na avaliação da Fase 1 (`EVAL_SKIP_SECONDS`) |
+| 4 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, configuração final + LSTM (6 detectores) | ciclo p95 0,48 s, CPU do detector ~0,03 núcleo, 0 reinícios; app com 100 itens em todas; latência de A, B e C comparável de novo (414–539 ms); A com **0** alertas iniciais nos 6, mas B e C com 0–30% (B: EWMA 0) | 1º episódio de latência logo após a troca (nas 3, sistemático) e 2º num pod só (ruído do ambiente). **Decidido:** acomodação de 60 s na avaliação da Fase 1 (`EVAL_SKIP_SECONDS`) |
 
 ---
 
@@ -241,7 +241,7 @@ Registrar aqui como Piloto 4, com a saída do `make detector-ciclo` (p95 do cicl
 - p95 do ciclo < 2,5 s e nenhum reinício: **atingido** (0,48 s; 0).
 - itens por pod iguais no início e `at_min=1`: **atingido** (100;100 nas 3).
 - `false_scaleups` = 0 em A, B e C: **não atingido pela letra** (C = 1). O C não usa detector: escala por CPU a 35%, e a carga normal fica perto disso. O critério mirava alarmes do detector; o B, que usa o detector, teve 0.
-- alertas iniciais perto de 0 em todos: **atingido no A** (0 nos 6), **não atingido em B e C** (7–30%).
+- alertas iniciais perto de 0 em todos: **atingido no A** (0 nos 6), **não atingido em B e C** (0–30%; no B, o EWMA teve 0).
 
 **Leitura (N = 1, padrão, não conclusão):**
 1. **O reinício da app resolveu a latência:** no piloto 3, B e C chegaram a 975 e 1.200 ms nos picos; agora os três ficam entre 414 e 539 ms.
@@ -274,11 +274,11 @@ Registrar aqui como Piloto 4, com a saída do `make detector-ciclo` (p95 do cicl
    - **1º, logo após a troca aquecimento → roteiro** (A 20–35 s, B 30–50 s, C 15–35 s): nas 3 execuções, no mesmo trecho, com a taxa de requisições subindo 8–14% entre 10 e 35 s (A 6,6 → 7,6; B 6,6 → 7,2; C 6,6 → 7,3 req/s). **Sistemático, do procedimento.**
    - **2º, num pod só, em instantes irregulares** (B crxf8 90–110 s e 140–150 s; C pr6c5 80–100 s, até 240 ms): **ruído do ambiente**, igual para todos os detectores.
 
-   **Hipóteses descartadas:** réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas); retreino do LSTM a cada 60 s (segue o relógio do pod do detector, não sincronizado com o roteiro). A CPU por container nesses instantes ficou inconclusiva (coleta esparsa para janelas de 15 s).
+   **Hipóteses descartadas:** réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas). **Improvável, não descartada:** retreino do LSTM a cada 60 s (segue o relógio do pod do detector, que não bate com o roteiro). A CPU por container nesses instantes ficou inconclusiva (coleta esparsa para janelas de 15 s).
 
 **Decisões (16/out/2026, Ricardo, antes da Fase 1; aguardando confirmação do orientador):**
 - Fase 1 com os 6 detectores num pod só (critério do ciclo atendido);
-- **acomodação inicial da avaliação (burn-in) de 60 s** (`EVAL_SKIP_SECONDS=60`): na Fase 1, offline e online, os pontos com offset < 60 s ficam fora de F1, precisão, recall e MTTD; os detectores veem a série inteira. Trata o 1º tipo de episódio; o 2º (ruído do ambiente) continua contando. Nenhum pico é cortado (1ª anomalia aos 150/175 s). Não se aplica à Fase 3. Registro: `DECISOES_METODO.md`, item 11. O `make check-inicio` passa a mostrar as duas partes (0–60 s e 60 s–1ª anomalia).
+- **acomodação inicial da avaliação (burn-in) de 60 s** (`EVAL_SKIP_SECONDS=60`): na Fase 1, offline e online, os pontos com offset < 60 s ficam fora de F1, precisão, recall e MTTD; os detectores veem a série inteira. Trata o 1º tipo de episódio; o 2º (ruído do ambiente) continua contando. Nenhum pico é cortado (1ª anomalia aos 150/175 s). Não se aplica à Fase 3. Efeito registrado: a base do EWMA offline (primeiros 150 s) inclui a oscilação da troca; possível limiar um pouco mais largo (sem correção: parâmetros da qualificação). Registro: `DECISOES_METODO.md`, item 11. O `make check-inicio` passa a mostrar as duas partes (0–60 s e 60 s–1ª anomalia).
 
 ### Medição do transbordo de alertas após os picos (18/out/2026, dados do piloto 4)
 

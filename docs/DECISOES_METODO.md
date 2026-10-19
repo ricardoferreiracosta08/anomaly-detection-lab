@@ -12,13 +12,15 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 | 2 | Quais comparações fazer | Fase 1 | **adotada e implementada** (aguarda orientador): 6 offline × online + 5 vencedor da regra do B × outros online, por cenário | Fase 1 |
 | 3 | LSTM no rol e como candidato ao B | Fases 1 e 3 | **adotada** (aguarda orientador): manter; piloto 4: ciclo p95 0,48 s | Fase 1 |
 | 4 | Estado inicial da aplicação | Fases 1 e 3 | **adotada** (aguarda orientador): reiniciar com 100 itens | Fase 1 |
-| 5 | Detectores no cluster | Fases 1 e 3 | **adotada** (aguarda orientador): Fase 1 num pod; Fase 3 só o do B | Fase 1 |
+| 5 | Detectores no cluster | Fases 1 e 3 | **adotada** (aguarda orientador): Fase 1 com os 6 num pod; Fase 3 só o do B, **igual nos modos A, B e C**; modo D: decidir antes da Fase 3 | Fase 1 / Fase 3 |
 | 6 | Tolerância de atraso na avaliação | Fase 1 | **adotada e implementada** (aguarda orientador): sem (principal) e com **30 s** (secundário), offline e online | Fase 1 |
 | 7 | Detector do modo B e métrica principal | Fase 3 | **regra registrada em 16/out/2026** (ver item 7); métrica: tempo de reação | Fase 3 |
 | 8 | Valor do SLO (500 ms) | Fase 3 | manter + sensibilidade com outros limites | Fase 3 |
 | 9 | Ameaças à validade suficientes? | escrita | declarar as limitações | escrita |
 | 10 | Forma do IC (t·S/√N × t·S) | Fases 1 e 3 | t·S/√N (atual) | Fase 1 |
 | 11 | Acomodação inicial da avaliação (burn-in) | Fase 1 | **adotada** (aguarda orientador): 60 s fora da pontuação (`EVAL_SKIP_SECONDS`) | Fase 1 |
+| 12 | Janela do detector online | Fases 1 e 3 | **adotada** (aguarda orientador): 5 min, valor da qualificação; sensibilidade só por replay | Fase 1 |
+| 13 | ANOVA antes dos pares (slide 65) | Fases 1 e 3 | proposta: dispensada, porque as comparações são planejadas | Fase 1 |
 
 ---
 
@@ -96,6 +98,8 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 **Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador.** Na Fase 3, `DETECTOR_ALGOS` passa a ter só o detector do B (e o do D, se usado), fixado junto com a escolha do B.
 
+**Esclarecido em 18/out/2026:** na Fase 3 o detector roda **igual nos modos A, B e C**, não só no B. O pod `online-detector` é um só, implantado com `DETECTOR_ALGOS` fixo, e fica de pé o tempo todo; o modo do HPA só muda quem **lê** o `anomaly_level`. Assim o custo de CPU do detector é o mesmo nos três modos, e a comparação é justa. **Modo D (2º detector) — decidir antes da Fase 3:** ou o D sai (`HPA_MODES=A,B,C`, o padrão), ou os dois detectores (o do B e o do D) rodam em **todos** os modos, e o custo é igual de novo. Proposta: D sai.
+
 ### 6. Tolerância de atraso na avaliação do online (Fase 1)
 
 **Situação.** O alerta chega alguns segundos depois do início real do pico e pode "transbordar" para depois do fim. Isso conta como erro, mesmo quando o detector acertou. Dois atrasos se somam: os **sinais** (latência p95 e taxa são `rate[30s]`: continuam altos até ~30 s depois do fim do pico) e, no online, o **pipeline** (consulta, publicação, coleta).
@@ -167,17 +171,34 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 | **1º: logo após a troca aquecimento → roteiro** | A 20–35 s (9 → 19 ms), B 30–50 s (5 → 33 ms), C 15–35 s (5 → 9 ms) | nos 2 pods (A), mais em um (B: 51–55 ms × 6–15 ms) | **sistemático, do procedimento**: nas 3 execuções, no mesmo trecho; a taxa de requisições sobe 8–14% entre 10 e 35 s (A 6,6 → 7,6; B 6,6 → 7,2; C 6,6 → 7,3 req/s) |
 | **2º: um pod só, instantes irregulares** | B pod crxf8 90–110 s (35 ms) e 140–150 s (31 ms); C pod pr6c5 80–100 s (até 240 ms) | um pod, o outro quase normal | **ruído do ambiente**, igual para todos os detectores: não tratar |
 
-Hipóteses descartadas: réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas); retreino do LSTM a cada 60 s (segue o relógio do pod do detector, não sincronizado com o roteiro). Detalhes: [PILOTOS.md](PILOTOS.md), piloto 4.
+Hipóteses descartadas: réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas). Hipótese **improvável, não descartada**: retreino do LSTM a cada 60 s (segue o relógio do pod do detector, que não bate com o roteiro). Detalhes: [PILOTOS.md](PILOTOS.md), piloto 4.
 
 **Decisão — adotada em 16/out/2026 (Ricardo), antes da Fase 1; aguardando confirmação do orientador.**
 - Na avaliação da **Fase 1** (offline **e** online, mesma regra), os pontos com `offset_seconds` < **60 s** (`EVAL_SKIP_SECONDS`) **não entram** em F1, precisão, recall e MTTD. Os detectores continuam rodando sobre a série inteira; só a pontuação ignora o trecho. Vale também no `make online-replay`.
 - **Nenhum pico é cortado:** a 1ª anomalia do gabarito começa aos **150 s** (burst e shift) e **175 s** (rampup), conferido em `ANOMALY_PHASES`. O gabarito, os roteiros k6 e os parâmetros dos detectores não mudam.
 - **Os alarmes entre 60 s e a 1ª anomalia continuam contando** (o 2º tipo de episódio é ruído real).
+- **Efeito registrado, sem mudança:** o EWMA offline aprende o "normal" nos primeiros 150 s (parâmetro da qualificação), e esse trecho inclui a oscilação da troca (15–55 s). Efeito possível: limiar um pouco mais largo no EWMA offline. Não se corrige, porque os parâmetros do EWMA são os da qualificação; fica escrito para explicar um EWMA offline diferente do esperado.
 - **Não se aplica à Fase 3:** as métricas do HPA (`hpa_metrics.py`) olham os picos e os scale-ups; nenhuma delas pontua alertas no trecho inicial.
 - `EVAL_SKIP_SECONDS=0` reproduz a avaliação antiga e a da qualificação (verificado: offline 45/45 com `results_qualificacao/`, LSTM 9/9, replay online 54/54).
 - Por quê 60 s: cobre o 1º tipo de episódio nas 3 execuções (até 50 s) com folga, longe da 1ª anomalia (150 s). Descartar o transiente inicial ("burn-in") é procedimento padrão em avaliação de desempenho, desde que decidido antes e registrado.
 
 **Fechar antes de:** Fase 1 (fechada; falta a confirmação do orientador).
+
+### 12. Janela do detector online (5 min)
+
+**Situação.** A janela de referência do detector online (`DETECTOR_WINDOW` = 60 pontos = 5 min, mais o gap de 30 s) é um **parâmetro do detector ao vivo**: diferente do SLO e da ANOVA, que são análise, ela não pode mudar depois da Fase 1 sem rodar tudo de novo.
+
+**Decisão — adotada em 18/out/2026 (Ricardo); aguardando confirmação do orientador.** Fixada em **5 min**, o valor da qualificação. A sensibilidade a outras janelas só é avaliada por **replay**, como análise complementar declarada como tal, sem mudar o experimento.
+
+**Fechar antes de:** Fase 1.
+
+### 13. ANOVA antes dos pares (slide 65)
+
+**Situação.** O material recomenda ANOVA antes das comparações par a par com 3 ou mais grupos. A ANOVA protege contra muitas comparações feitas **sem plano**.
+
+**Proposta (aguardando o orientador).** Dispensar a ANOVA: as comparações são **planejadas e definidas antes** (decisão 2: 11 por cenário na Fase 1; B×A, B×C e C×A na Fase 3), cada uma respondendo a uma pergunta da pesquisa.
+
+**Fechar antes de:** Fase 1.
 ---
 
 ## Já decididas

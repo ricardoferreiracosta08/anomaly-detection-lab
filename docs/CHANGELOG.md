@@ -95,6 +95,12 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (18/out): estado do projeto e fechamento das decisões antes da Fase 1
+
+- **`docs/ESTADO_DO_PROJETO.md`** (novo): resumo completo do que está feito, decidido e pendente (fases, infraestrutura, detectores, procedimento, estatística, decisões, pilotos, comandos, próximos passos). Link no README e no mapa do regras do projeto. É um resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`; o regras do projeto passa a exigir que toda mudança de decisão ou piloto o atualize também.
+- **DECISOES_METODO:** item 5 esclarece que na Fase 3 o detector roda **igual em A, B e C** e que o modo D precisa ser decidido antes (proposta: sai); novo item **12** (janela do detector fixa em 5 min, sensibilidade só por replay: parâmetro do detector ao vivo, não pode mudar depois da Fase 1); novo item **13** (proposta: ANOVA dispensada, porque as comparações são planejadas); item 11 registra que a base do EWMA offline inclui a oscilação da troca.
+- **Correções de texto:** retreino do LSTM como hipótese **improvável, não descartada**; alertas iniciais do piloto 4 em B e C = 0–30% (o EWMA do B teve 0).
+
 ## Novo (18/out): comparações planejadas e tolerância de 30 s (decisões 2 e 6)
 
 - **Só as comparações planejadas** (decisão 2; `planned_pairs` e `rule_b_ranking` em `stats_tlc.py`): por cenário, 6 offline × online do mesmo detector e 5 do **vencedor da regra do B** × outros online; o vencedor é o 1º pela média das 3 médias do F1 online, **o mesmo nos 3 cenários**. As 66 comparações de todos os pares não são mais geradas (nem como anexo). O relatório mostra o ranking da regra do B e aplica o desempate (menor MTTD online); nova aba `5_regra_B_ranking`; coluna `familia` nos testes.
