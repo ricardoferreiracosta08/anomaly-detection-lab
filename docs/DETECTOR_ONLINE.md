@@ -170,7 +170,7 @@ Com K = 2, se as notas normais seguissem uma curva de sino, ~2,3% delas passaria
 
 ### O offline não é um "teto"
 
-Ver o futuro ajuda, mas treinar sobre a série inteira faz o modelo absorver as anomalias como normais, e a régua do offline é fixa ou contaminada pelos picos. Por isso o offline **não é um limite superior** do online: no replay da qualificação, o online superou o offline em 4 de 5 detectores (o AE foi de 0,08 offline para 0,60 online). A avaliação offline representa a **análise retrospectiva** (por exemplo, um post-mortem com o dia inteiro na mão); a online, a **operação em tempo real**. A comparação entre as duas mede **o efeito de operar online** sobre cada algoritmo, e pode favorecer qualquer lado. A escolha do detector do HPA usa **só** o desempenho online.
+Ver o futuro ajuda, mas treinar sobre a série inteira faz o modelo absorver as anomalias como normais, e a régua do offline é fixa ou contaminada pelos picos. Por isso o offline **não é um limite superior** do online: no replay da qualificação (N = 3), o online superou o offline em 13 de 18 combinações detector × cenário (ex.: AE no burst, 0,37 offline × 0,61 online), mas não em todas (o EWMA perdeu no burst e no rampup; IF e LOF, no shift); no piloto 1 (N = 1), o AE teve 0,08 offline e 0,60 no replay (0,34 ao vivo). A avaliação offline representa a **análise retrospectiva** (por exemplo, um post-mortem com o dia inteiro na mão); a online, a **operação em tempo real**. A comparação entre as duas mede **o efeito de operar online** sobre cada algoritmo, e pode favorecer qualquer lado. A escolha do detector do HPA usa **só** o desempenho online.
 
 ## 5. Limitações
 

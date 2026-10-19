@@ -39,7 +39,7 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 **Proposta.** Pareado na Fase 1. Na Fase 3 continua não pareado, porque lá A, B e C são execuções independentes.
 
 **Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`paired_test` em `scripts/stats_tlc.py`):
-- **Fase 1:** cada par (detector × detector, ou offline × online) é comparado **execução a execução**: d = Y_A − Y_B em cada execução, IC 95% de d̄ = d̄ ± t(0,975; N−1)·S_d/√N (a mesma fórmula do IC da média), t = d̄/(S_d/√N), gl = N − 1, p bilateral. Diferença significativa se o IC não contém o 0. O relatório (`results/stats/phase1/relatorio.md`) mostra N, a diferença, o IC da diferença, t, gl e p.
+- **Fase 1:** cada par (detector × detector, ou offline × online) é comparado **execução a execução**. O pareamento vale nas **duas famílias** do item 2: online × online porque os dois rodaram ao vivo nas mesmas execuções; offline × online porque os dois foram calculados sobre o mesmo CSV. Fórmula: d = Y_A − Y_B em cada execução, IC 95% de d̄ = d̄ ± t(0,975; N−1)·S_d/√N (a mesma fórmula do IC da média), t = d̄/(S_d/√N), gl = N − 1, p bilateral. Diferença significativa se o IC não contém o 0. O relatório (`results/stats/phase1/relatorio.md`) mostra N, a diferença, o IC da diferença, t, gl e p.
 - **Fase 3:** continua o t não pareado do material [AR 66] (gl = nA + nB − 2) com o teste visual dos ICs [AR 64].
 - `make selftest` (`test_paired_test`): confere a fórmula, o alinhamento pela execução e um caso em que o pareado vê uma melhora constante que o não pareado não vê.
 
@@ -60,7 +60,18 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 1. **offline × online do mesmo detector:** 6 por cenário (EWMA × EWMA_online, …, LSTM × LSTM_online);
 2. **o vencedor da regra do B × cada um dos outros 5 online:** 5 por cenário. "Vencedor" = o 1º pela regra pré-registrada (maior **média das 3 médias** do F1 online), **o mesmo detector nos 3 cenários**; não se escolhe um "melhor" por cenário. Assim as 5 comparações respondem a uma pergunta só: o escolhido para o B é de fato melhor que os outros, ou empata? O par 1º × 2º, que a regra usa no desempate, está incluído.
 
-**O que a família offline × online mede** (formulação para a dissertação, 18/out/2026): **não** é uma disputa com vencedor pré-definido, e o offline **não** é um teto do online. O offline é a análise retrospectiva (série inteira na mão, mas treino sobre os picos e régua fixa ou contaminada por eles); o online é a operação em tempo real. A comparação mede **o efeito de operar online** sobre cada algoritmo e pode favorecer qualquer lado (no replay da qualificação, o online venceu em 4 de 5). A escolha do detector do B usa só o online. Ver `DETECTOR_ONLINE.md`, seção 4.
+**As duas famílias, lado a lado** (19/out/2026):
+
+| Família | Pares (por cenário) | Por que é pareada | Pergunta | Serve para |
+|---|---|---|---|---|
+| **da escolha** | vencedor online × cada um dos outros 5 online | os dois rodaram ao vivo nas **mesmas 10 execuções** | "Quem detecta melhor ao vivo?" | a **decisão da Fase 3** (regra do B) |
+| **offline × online** | EWMA × EWMA_online, IF × IF_online, … (6) | os dois foram calculados sobre o **mesmo CSV** de cada execução | "O desempenho muda quando o detector passa a trabalhar ao vivo?" | a **dissertação** (um achado); **não escolhe ninguém** |
+
+Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste é **não pareado**. Os nomes evitam "família A/B" para não confundir com os modos A e B do HPA.
+
+**Hipótese a confirmar na Fase 1 (família offline × online):** a maioria dos trabalhos avalia detectores offline. No piloto 1 (N = 1), o AE foi o pior offline (0,08) e um dos melhores online (0,60 no replay; 0,34 ao vivo, entre os melhores); no replay da qualificação (N = 3), o online superou o offline em 13 de 18 combinações detector × cenário, mas não em todas. Se isso se confirmar com N = 10, é um resultado: *"escolher o detector olhando só a avaliação offline pode levar à escolha errada para uso ao vivo"*. É hipótese, não conclusão: a Fase 1 decide.
+
+**O que a família offline × online mede** (formulação para a dissertação, 18/out/2026): **não** é uma disputa com vencedor pré-definido, e o offline **não** é um teto do online. O offline é a análise retrospectiva (série inteira na mão, mas treino sobre os picos e régua fixa ou contaminada por eles); o online é a operação em tempo real. A comparação mede **o efeito de operar online** sobre cada algoritmo e pode favorecer qualquer lado (no replay da qualificação, o online venceu em 13 de 18 combinações detector × cenário, não em todas). A escolha do detector do B usa só o online. Ver `DETECTOR_ONLINE.md`, seção 4.
 
 **Não são geradas** as 66 comparações de todos os pares, nem como anexo: o relatório só contém o que foi planejado. O relatório também mostra o ranking da regra do B e aplica o desempate (menor MTTD online) quando 1º × 2º não diferem em nenhum cenário. `make selftest` (`test_planned_pairs`): 11 comparações por cenário e nenhuma outra; o mesmo vencedor nos 3 cenários, mesmo quando outro detector vence um cenário sozinho.
 

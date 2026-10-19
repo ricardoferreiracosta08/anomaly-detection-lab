@@ -95,6 +95,11 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (19/out): as duas famílias de comparação, lado a lado
+
+- `DECISOES_METODO.md` (itens 1 e 2), `EXPLICACAO.md` (seção 9) e `ESTADO_DO_PROJETO.md`: tabela das duas famílias da Fase 1 — **da escolha** (vencedor online × outros online: "quem detecta melhor ao vivo?" → decide a Fase 3) e **offline × online** ("o desempenho muda ao vivo?" → achado da dissertação, não escolhe ninguém); por que as duas são pareadas (mesmas execuções; mesmo CSV) e a Fase 3 não; hipótese a confirmar ("escolher pelo offline pode levar à escolha errada"). Nomes que evitam confusão com os modos A/B.
+- **Correção de atribuição:** "o online venceu em 4 de 5" e "AE 0,08 → 0,60" são do **piloto 1** (N = 1; 0,60 é o replay, 0,34 ao vivo), não do replay da qualificação, onde o online venceu em **13 de 18** combinações detector × cenário (não em todas). Corrigido em `DETECTOR_ONLINE.md`, `DECISOES_METODO.md`, `ESTADO_DO_PROJETO.md` e `EXPLICACAO.md`.
+
 ## Novo (18/out): explicação didática e offline × online sem "teto"
 
 - **`docs/EXPLICACAO.md`** (novo): o projeto explicado para reunião e banca (lanchonete, fases, detectores, pilotos como investigação, regras de avaliação, estatística, regra do campeão, limitações, 6 frases-chave). Resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`; o regras do projeto exige atualizá-lo junto com o `ESTADO_DO_PROJETO.md`.

@@ -67,7 +67,7 @@ Os dois são calculados sobre **a mesma execução**.
    - IF e LOF offline marcam **sempre os 10% mais estranhos do dia** (`contamination`), haja anomalia ou não: num dia calmo, inventam alarmes; num dia caótico, perdem metade.
    - AE e LSTM offline usam uma régua calculada **com os picos dentro**: os picos inflam a média e o limiar sobe.
 
-O online usa outra régua: "**bem acima do que foi normal nos últimos 5 min**", sem cota. Resultado na qualificação: **o online ganhou em 4 de 5 detectores** (o AE foi de 0,08 offline para 0,60 online).
+O online usa outra régua: "**bem acima do que foi normal nos últimos 5 min**", sem cota. Resultado no replay da qualificação: **o online ganhou em 13 de 18 combinações** de detector e carga, mas não em todas (o EWMA, por exemplo, perdeu no burst e no rampup). No piloto 1, o AE foi de **0,08 offline** para **0,60 online sem o atraso do cluster** (0,34 ao vivo, ainda entre os melhores).
 
 **Então para que o offline?**
 - **Ligação com a qualificação**, que foi toda offline.
@@ -163,9 +163,18 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 3. Comparação:
    - **Fase 1, pareada:** todos os detectores fazem **a mesma prova** (as mesmas execuções), então se compara prova a prova. É mais justo e mais sensível.
    - **Fase 3, não pareada:** A, B e C são execuções diferentes.
-4. **Só as comparações planejadas**, 11 por cenário em vez de 66:
-   - cada detector offline × ele mesmo online (6);
-   - o campeão online × cada um dos outros online (5).
+4. **Só as comparações planejadas**, 11 por cenário em vez de 66, em **duas famílias**:
+
+   | Família | O que compara | Pergunta | Para que serve |
+   |---|---|---|---|
+   | **da escolha** | o campeão online × cada um dos outros 5 online | "Quem detecta melhor ao vivo?" | **decide a Fase 3** (o detector do B) |
+   | **offline × online** | cada detector offline × ele mesmo online (6) | "O desempenho muda quando o detector passa a trabalhar ao vivo?" | **um achado da dissertação**; não escolhe ninguém |
+
+   As **duas são pareadas**, porque nas duas os números saem das **mesmas 10 execuções**: o campeão e os outros rodaram ao vivo juntos; o IF offline e o IF online foram calculados sobre o mesmo CSV. Na Fase 3, A, B e C são execuções diferentes, e por isso lá o teste é não pareado.
+
+   **O achado que pode sair da família offline × online:** no piloto 1, o AE foi o **pior** offline (0,08) e um dos **melhores** online (0,60 sem o atraso do cluster; 0,34 ao vivo, ainda entre os melhores). Se isso se confirmar na Fase 1, a mensagem é forte: *"escolher o detector olhando só a avaliação offline (o jeito mais comum na literatura) pode levar à escolha errada para quem vai usá-lo ao vivo"*.
+
+   (Os nomes "da escolha" e "offline × online" evitam "família A/B", que confundiria com os modos A e B do HPA.)
 
    Comparar tudo com tudo gera "diferenças" por acaso: é como jogar 66 moedas e achar que a que deu 5 caras seguidas é especial.
 
