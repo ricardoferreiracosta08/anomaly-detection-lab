@@ -1,4 +1,4 @@
-# Anomaly Detection Lab — Kubernetes (100% Docker + IaC)
+# Anomaly Detection Lab: Kubernetes (100% Docker + IaC)
 
 Detecção de anomalias em Kubernetes baseada em observabilidade contínua:
 comparação experimental de 6 detectores (Fase 1), detector online no cluster (Fase 2)
