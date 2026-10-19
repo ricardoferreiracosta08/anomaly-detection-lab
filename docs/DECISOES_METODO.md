@@ -60,6 +60,8 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 1. **offline × online do mesmo detector:** 6 por cenário (EWMA × EWMA_online, …, LSTM × LSTM_online);
 2. **o vencedor da regra do B × cada um dos outros 5 online:** 5 por cenário. "Vencedor" = o 1º pela regra pré-registrada (maior **média das 3 médias** do F1 online), **o mesmo detector nos 3 cenários**; não se escolhe um "melhor" por cenário. Assim as 5 comparações respondem a uma pergunta só: o escolhido para o B é de fato melhor que os outros, ou empata? O par 1º × 2º, que a regra usa no desempate, está incluído.
 
+**O que a família offline × online mede** (formulação para a dissertação, 18/out/2026): **não** é uma disputa com vencedor pré-definido, e o offline **não** é um teto do online. O offline é a análise retrospectiva (série inteira na mão, mas treino sobre os picos e régua fixa ou contaminada por eles); o online é a operação em tempo real. A comparação mede **o efeito de operar online** sobre cada algoritmo e pode favorecer qualquer lado (no replay da qualificação, o online venceu em 4 de 5). A escolha do detector do B usa só o online. Ver `DETECTOR_ONLINE.md`, seção 4.
+
 **Não são geradas** as 66 comparações de todos os pares, nem como anexo: o relatório só contém o que foi planejado. O relatório também mostra o ranking da regra do B e aplica o desempate (menor MTTD online) quando 1º × 2º não diferem em nenhum cenário. `make selftest` (`test_planned_pairs`): 11 comparações por cenário e nenhuma outra; o mesmo vencedor nos 3 cenários, mesmo quando outro detector vence um cenário sozinho.
 
 ### 3. LSTM no rol e como candidato ao modo B

@@ -154,6 +154,24 @@ São os mesmos algoritmos, mas a pergunta é outra:
 
 **Exceção: EWMA.** Já é sequencial por natureza (sempre compara com uma média do passado), então a janela pouco acrescenta.
 
+### A régua de cada forma
+
+Parte da diferença offline × online **não vem de ver ou não o futuro**, e sim da **régua** que transforma a nota em alerta:
+
+| | Offline | Online (IF, LOF, AE, LSTM) |
+|---|---|---|
+| IF e LOF | `fit_predict` com `contamination = 0,1`: **cota fixa** de ~10% dos pontos | `score_samples` (nota bruta, sem contamination) e nota > μ + K·σ das notas dos **últimos 5 min** |
+| AE e LSTM | erro > μ + 2σ dos erros da **série inteira**: os picos entram na régua, inflam μ e σ e o limiar sobe (*masking*) | erro > μ + K·σ dos erros da referência, feita só de passado "limpo" (o gap de 30 s deixa o começo do pico de fora) |
+| Dia calmo, sem anomalia | IF e LOF marcam 10% mesmo assim: falsos alarmes garantidos | marca quase nada |
+| Dia com muita anomalia | IF e LOF marcam só ~10%: perdem parte dela | marca o que fugir da régua |
+| Proporção de alertas | **fixa** (IF, LOF) ou presa à série (AE, LSTM) | **varia** com o que acontece |
+
+Com K = 2, se as notas normais seguissem uma curva de sino, ~2,3% delas passariam de μ + 2σ por acaso: é uma taxa **esperada** de alarme falso, consequência da régua, não uma cota. Se o ponto atual for típico, não há alerta.
+
+### O offline não é um "teto"
+
+Ver o futuro ajuda, mas treinar sobre a série inteira faz o modelo absorver as anomalias como normais, e a régua do offline é fixa ou contaminada pelos picos. Por isso o offline **não é um limite superior** do online: no replay da qualificação, o online superou o offline em 4 de 5 detectores (o AE foi de 0,08 offline para 0,60 online). A avaliação offline representa a **análise retrospectiva** (por exemplo, um post-mortem com o dia inteiro na mão); a online, a **operação em tempo real**. A comparação entre as duas mede **o efeito de operar online** sobre cada algoritmo, e pode favorecer qualquer lado. A escolha do detector do HPA usa **só** o desempenho online.
+
 ## 5. Limitações
 
 ### Anomalias longas

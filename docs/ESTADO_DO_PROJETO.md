@@ -40,6 +40,7 @@ Comparações da Fase 3: **B × A** (o proativo é melhor?), **B × C** (é a de
 - Parâmetros de EWMA, IF e LOF idênticos aos da qualificação. LSTM fixo: sequência de 12 pontos (1 min), 16 unidades, 30 épocas, Adam, semente 42, determinístico, 1 thread; só muda com base no replay da qualificação.
 - **Online:** a cada 5 s, janela de referência de 60 pontos (**5 min**, fixa) terminando 30 s antes do ponto (gap); K = 2; piso do σ das notas = 5% da média; piso nas entradas = 1% da média; AE e LSTM retreinam a cada 12 passos, defasados 6 entre si. `anomaly_level` = fração de alertas nos últimos 3 passos; o modo B age a partir de 0,67 (alvo 0,5).
 - Os 6 rodam num só pod, em sequência, a cada 5 s ("mesma foto" dos dados). Custo medido no piloto 4: ciclo p95 0,48 s, CPU do pod ~0,03 núcleo, 0 reinícios.
+- **Offline × online:** o offline (série inteira na mão) **não é um teto** do online. Ele vê o futuro, mas treina sobre os picos (*masking*), e IF/LOF offline têm cota fixa de 10% (`contamination`), enquanto o online usa a régua μ + K·σ dos últimos 5 min, sem cota. A comparação mede o efeito de operar online e pode favorecer qualquer lado (qualificação: online venceu em 4 de 5). O detector do B sai só do online.
 - LSTM no replay dos 9 CSVs da qualificação (configuração final): F1 online burst 0,606, rampup 0,451, shift 0,356, entre os melhores e empatado com AE e DBSCAN. Offline fraco (aprende os picos como normais).
 
 Detalhes: [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md), [README](../README.md).

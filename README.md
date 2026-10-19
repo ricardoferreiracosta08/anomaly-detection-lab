@@ -149,6 +149,6 @@ docs/                   runbook VPS+VPN, HPA (Fase 3), detector online, Grafana,
 
 O que mudou em relação à versão anterior e por quê: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 Decisões de método (tomadas e em aberto, com data e motivo): [docs/DECISOES_METODO.md](docs/DECISOES_METODO.md).
-Resumo completo do estado atual do projeto (fases, detectores, procedimento, estatística, decisões, pilotos, próximos passos): [docs/ESTADO_DO_PROJETO.md](docs/ESTADO_DO_PROJETO.md).
+Resumo completo do estado atual do projeto (fases, detectores, procedimento, estatística, decisões, pilotos, próximos passos): [docs/ESTADO_DO_PROJETO.md](docs/ESTADO_DO_PROJETO.md). Explicação didática, para reunião e banca: [docs/EXPLICACAO.md](docs/EXPLICACAO.md).
 Execuções de teste (pilotos) e as decisões que motivaram: [docs/PILOTOS.md](docs/PILOTOS.md). **Regra:** cada execução de teste relevante é registrada em `docs/PILOTOS.md`; os dados dos pilotos não entram nos resultados da dissertação.
 Como enviar para o GitHub: [docs/GIT.md](docs/GIT.md).

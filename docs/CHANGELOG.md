@@ -95,6 +95,11 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (18/out): explicação didática e offline × online sem "teto"
+
+- **`docs/EXPLICACAO.md`** (novo): o projeto explicado para reunião e banca (lanchonete, fases, detectores, pilotos como investigação, regras de avaliação, estatística, regra do campeão, limitações, 6 frases-chave). Resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`; o regras do projeto exige atualizá-lo junto com o `ESTADO_DO_PROJETO.md`.
+- **Offline não é um limite superior do online:** `DETECTOR_ONLINE.md` (seção 4) ganhou a tabela "A régua de cada forma" (IF/LOF offline com cota fixa de 10% via `contamination`; AE/LSTM offline com régua contaminada pelos picos; online com μ + K·σ dos últimos 5 min, sem cota) e o texto "O offline não é um teto". A família offline × online mede o efeito de operar online e pode favorecer qualquer lado (registrado no item 2 de `DECISOES_METODO.md` e no `ESTADO_DO_PROJETO.md`); o runbook deixou de chamar o offline de "limite superior".
+
 ## Novo (18/out): estado do projeto e fechamento das decisões antes da Fase 1
 
 - **`docs/ESTADO_DO_PROJETO.md`** (novo): resumo completo do que está feito, decidido e pendente (fases, infraestrutura, detectores, procedimento, estatística, decisões, pilotos, comandos, próximos passos). Link no README e no mapa do regras do projeto. É um resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`; o regras do projeto passa a exigir que toda mudança de decisão ou piloto o atualize também.

@@ -48,7 +48,7 @@ make check-inicio DIR=datasets_hpa   # segundos. Confira: alertas antes da 1ª a
 Como ler a degustação:
 
 - **Só prova que o caminho funciona.** Com N = 1, o relatório mostra a média e "—" em DP, IC e Shapiro, e avisa que não há teste t. É o esperado. Os números **não** valem para a dissertação.
-- **Online abaixo do offline é esperado.** O offline vê a execução inteira (limite superior); o online só vê o passado e chega com atraso (consulta ao Prometheus + publicação + novo scrape). O online tende a trocar precisão por recall.
+- **Online abaixo do offline é possível, mas não obrigatório.** O offline vê a execução inteira, mas não é um teto: treina sobre os picos (masking) e IF/LOF têm cota fixa de 10%; o online só vê o passado e chega com atraso (consulta ao Prometheus + publicação + novo scrape). O online tende a trocar precisão por recall.
 - **O replay separa as causas.** Compare o F1 do `online-replay` com o `<DET>_online` do `experiment-quick`: se o replay ficar bem acima, a perda vem do atraso do cluster, não dos detectores. Referência da qualificação (replay, burst, média de 3): AE 0,61 · DBSCAN 0,60 · IF 0,46 · LOF 0,39 · EWMA 0,34.
 - **Confirme antes da rodada longa, com o orientador,** as decisões adotadas em `docs/DECISOES_METODO.md` (teste pareado, comparações planejadas, tolerância de 30 s, acomodação de 60 s). Não mude nada depois de ver os resultados finais, e não reajuste o K (`DETECTOR_K_SIGMA`) olhando a Fase 1 definitiva.
 
