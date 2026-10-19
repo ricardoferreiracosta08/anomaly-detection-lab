@@ -27,7 +27,7 @@ DETECTOR_FEATURE_FLOOR ?= 0.01
 # acomodação inicial da avaliação da Fase 1 (s fora da pontuação; 0 = avaliação antiga)
 EVAL_SKIP_SECONDS ?= 60
 # tolerância de atraso após cada pico, só nas métricas secundárias (f1_tol etc.; 0 = sem)
-EVAL_TOLERANCE_SECONDS ?= 15
+EVAL_TOLERANCE_SECONDS ?= 30
 # .env antigo sem as variáveis do LSTM (6º detector): padrões fixos da arquitetura
 LSTM_SEQ_LEN ?= 12
 LSTM_HIDDEN  ?= 16

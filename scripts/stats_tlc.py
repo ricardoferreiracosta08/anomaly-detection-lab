@@ -309,11 +309,65 @@ def write_outputs(out, sheets, md):
 # Fase 1: detectores + k6
 # =============================================================================
 
+DET_ORDER = ["EWMA", "IF", "LOF", "DBSCAN", "AE", "LSTM"]
+
+
+def rule_b_ranking(det):
+    """Regra de escolha do detector do B (pré-registro, docs/HPA.md seção 3): para cada
+    detector ONLINE, média do F1 em cada cenário e depois a média das médias (cada cenário
+    pesa igual). Também a média das médias do MTTD online (desempate): janelas não
+    detectadas ficam fora da média; o nº de janelas detectadas vai ao lado. Ordem decrescente de F1."""
+    on = det[det.detector.astype(str).str.endswith("_online")]
+    if on.empty:
+        return pd.DataFrame(columns=["detector", "f1_media_das_medias", "mttd_media_das_medias", "n_cenarios"])
+    f1 = on.groupby(["detector", "scenario"])["f1"].mean().unstack("scenario")
+    mt = on.assign(m=on["mttd_seconds"].where(np.isfinite(on["mttd_seconds"]))).groupby(
+        ["detector", "scenario"])["m"].mean().unstack("scenario")
+    r = pd.DataFrame({"f1_media_das_medias": f1.mean(axis=1), "mttd_media_das_medias": mt.mean(axis=1),
+                      "n_cenarios": f1.notna().sum(axis=1)})
+    if {"windows_detected", "windows_total"} <= set(on.columns):   # MTTD só existe nas janelas detectadas
+        w = on.groupby("detector")[["windows_detected", "windows_total"]].sum()
+        r["janelas_detectadas"], r["janelas_total"] = w["windows_detected"], w["windows_total"]
+    for sc in f1.columns:
+        r[f"f1_{sc}"] = f1[sc]
+    return r.sort_values("f1_media_das_medias", ascending=False).reset_index()
+
+
+def planned_pairs(det):
+    """Comparações planejadas da Fase 1 (decisão 2), as MESMAS em todos os cenários:
+    (1) offline × online do mesmo detector; (2) o vencedor da regra do B (1º do ranking,
+    um só para os 3 cenários) × cada um dos outros online. Nada além disso."""
+    present = set(det.detector.astype(str))
+    off_on = [(b, f"{b}_online") for b in DET_ORDER if b in present and f"{b}_online" in present]
+    rank = rule_b_ranking(det)
+    winner = rank["detector"].iloc[0] if len(rank) else None
+    vs = [(winner, o) for o in rank["detector"].iloc[1:]] if winner else []
+    return off_on, vs, winner, rank
+
+
+def rule_b_choice(rank, vs_f1):
+    """Aplica a regra do B. Grupo de empate = o 1º + todos os online cuja diferença para o 1º
+    NÃO é significativa em nenhum cenário (teste pareado, decisão 1). Grupo de 1 → o 1º.
+    Grupo maior → vence o menor MTTD online (média das 3 médias; janelas não detectadas fora)."""
+    first = rank["detector"].iloc[0]
+    tied = [first]
+    for o in rank["detector"].iloc[1:]:
+        d = vs_f1[vs_f1.B == o]
+        if len(d) and (d.conclusao != "médias diferentes").all():
+            tied.append(o)
+    if len(tied) == 1:
+        return first, "nenhum outro online empata com o 1º: diferença significativa em pelo menos um cenário para cada um"
+    m = rank.set_index("detector")["mttd_media_das_medias"].reindex(tied)
+    chosen = m[np.isfinite(m)].idxmin() if np.isfinite(m).any() else first
+    return chosen, (f"grupo de empate com o 1º (sem diferença significativa em nenhum cenário): {', '.join(tied)} "
+                    f"→ menor MTTD online: {chosen} ({fmt(m[chosen], 1)} s)")
+
+
 def phase1(det_path, k6_path, out):
     det = pd.read_csv(det_path)
     det["mttd_seconds"] = pd.to_numeric(det["mttd_seconds"].replace({"inf": np.inf}), errors="coerce")
     det["_rep"] = det["run"].str.extract(r"(\d+)")[0].astype(int)
-    order = ["EWMA", "IF", "LOF", "DBSCAN", "AE", "LSTM"]
+    order = DET_ORDER
     present = set(det.detector)
     dets = [d for b in order for d in (b, f"{b}_online") if d in present]
     dets += sorted(present - set(dets))
@@ -325,10 +379,14 @@ def phase1(det_path, k6_path, out):
     os.makedirs(out, exist_ok=True)
     metrics = ["f1", "precision", "recall", "mttd_seconds"] + [m for m in ("f1_tol",) if m in det]
     T_det = table(det, ["scenario", "detector"], metrics)
-    # pareado: todos os detectores (e formas) saem das mesmas execuções (decisão 1)
-    T_t = pd.concat([pairwise(det, "scenario", "detector", m, paired_on="_rep") for m in ["f1", "precision", "recall"]],
-                    ignore_index=True)
-    sheets = {"0_validacao_slide55": slide55(), "1_IC_detectores": T_det, "2_teste_t": T_t}
+    # só as comparações planejadas (decisão 2), com o teste pareado (decisão 1)
+    off_on, vs, winner, rank = planned_pairs(det)
+    fams = [("offline × online", off_on), (f"vencedor da regra do B × outros online", vs)]
+    T_t = pd.concat([pairwise(det, "scenario", "detector", m, pairs=pp, paired_on="_rep").assign(familia=fam)
+                     for fam, pp in fams if pp for m in ["f1", "precision", "recall"]] or
+                    [pairwise(det.iloc[:0], "scenario", "detector", "f1").assign(familia=[])], ignore_index=True)
+    sheets = {"0_validacao_slide55": slide55(), "1_IC_detectores": T_det, "2_teste_t": T_t,
+              "5_regra_B_ranking": rank}
 
     nmax = int(det.groupby(["scenario", "detector"]).size().min())
     if nmax > 3:   # [AR 57]: mesma análise só com as 3 primeiras repetições
@@ -355,24 +413,51 @@ def phase1(det_path, k6_path, out):
         for r in T_k6.itertuples():
             md.append(f"| {r.scenario} | {r.metrica} | {r.N} | {fmt(getattr(r,'media',np.nan),1)} | {fmt(getattr(r,'H',np.nan),1)} | "
                       f"{fmt(getattr(r,'IC_inf',np.nan),1)} – {fmt(getattr(r,'IC_sup',np.nan),1)} | {fmt(100*getattr(r,'H_sobre_Y',np.nan),1)}% |")
-    if "f1_tol" in det:   # decisão 6: secundária, só para os online
+    if "f1_tol" in det:   # decisão 6: secundária, offline e online
         tol = det["eval_tol_s"].iloc[0] if "eval_tol_s" in det else float("nan")
-        md += ["", f"## F1 online com tolerância de atraso de {fmt(tol, 0)} s (secundário; decisão 6)", "",
-               "Pontos normais até a tolerância depois do fim de cada pico não contam: o alerta que chega atrasado "
-               "pelo pipeline online não vira falso positivo. **O F1 principal é o da seção acima, sem tolerância.**", ""]
-        md += md_ic_table(T_det[T_det.detector.str.endswith("_online")], "detector", "f1_tol")
-    f1t = T_t[T_t.metrica == "f1"]
-    md += ["", "## Teste t pareado (F1): IC da diferença por execução (decisão 1)", "",
-           "Mesmas execuções para todos os detectores e formas: d = F1(A) − F1(B) em cada execução; "
-           "IC 95% de d̄ = d̄ ± t·S_d/√N (gl = N − 1). Diferença significativa se o IC não contém o 0.", "",
-           "| cenário | par | N | dif (A − B) | IC95% da diferença | t | gl | p | conclusão |",
-           "|---|---|---|---|---|---|---|---|---|"]
-    for r in f1t.itertuples():
-        md.append(f"| {r.scenario} | {r.A} × {r.B} | {r.n} | {fmt(r.dif)} | {fmt(r.IC_dif_inf)} – {fmt(r.IC_dif_sup)} | "
-                  f"{fmt(r.t,2)} | {r.gl} | {fmt(r.p,4)} | {r.conclusao} |")
-    if f1t.empty:
+        md += ["", f"## F1 com tolerância de atraso de {fmt(tol, 0)} s (secundário; decisão 6)", "",
+               "Pontos normais até a tolerância depois do fim de cada pico não contam: o alerta que ainda carrega o "
+               "pico (sinais com janela de 30 s + pipeline online) não vira falso positivo. Offline e online, para a "
+               "comparação ser justa. **O F1 principal é o da seção acima, sem tolerância.**", ""]
+        md += md_ic_table(T_det, "detector", "f1_tol")
+
+    def pair_table(fam):
+        sub = T_t[(T_t.metrica == "f1") & (T_t.familia == fam)]
+        lines = ["| cenário | par | N | dif (A − B) | IC95% da diferença | t | gl | p | conclusão |",
+                 "|---|---|---|---|---|---|---|---|---|"]
+        for r in sub.itertuples():
+            lines.append(f"| {r.scenario} | {r.A} × {r.B} | {r.n} | {fmt(r.dif)} | {fmt(r.IC_dif_inf)} – {fmt(r.IC_dif_sup)} | "
+                         f"{fmt(r.t,2)} | {r.gl} | {fmt(r.p,4)} | {r.conclusao} |")
+        return lines, sub
+
+    md += ["", "## Comparações planejadas (F1; decisões 1 e 2)", "",
+           "Só estas comparações, definidas antes dos dados e iguais em todos os cenários. Teste **pareado**: "
+           "d = F1(A) − F1(B) em cada execução, IC 95% de d̄ = d̄ ± t·S_d/√N (gl = N − 1); diferença significativa "
+           "se o IC não contém o 0. Precisão e recall dos mesmos pares: aba `2_teste_t` do `estatistica.xlsx`.", "",
+           "### Offline × online do mesmo detector", ""]
+    lines, sub = pair_table("offline × online"); md += lines
+    if winner:
+        md += ["", "### Regra de escolha do detector do B", "",
+               "Maior **média das 3 médias** do F1 online (cada cenário pesa igual); o 1º é o MESMO nos 3 cenários.", "",
+               "| posição | detector | " + " | ".join(f"F1 {c[3:]}" for c in rank.columns if c.startswith("f1_") and c != "f1_media_das_medias")
+               + " | média das médias (F1) | média das médias (MTTD, s) | janelas detectadas |",
+               "|---" * (5 + sum(1 for c in rank.columns if c.startswith("f1_") and c != "f1_media_das_medias")) + "|"]
+        for k, r in enumerate(rank.itertuples(), 1):
+            cells = " | ".join(fmt(getattr(r, c)) for c in rank.columns if c.startswith("f1_") and c != "f1_media_das_medias")
+            jan = (f"{int(r.janelas_detectadas)}/{int(r.janelas_total)}" if hasattr(r, "janelas_total") else "—")
+            md.append(f"| {k} | {r.detector} | {cells} | {fmt(r.f1_media_das_medias)} | {fmt(r.mttd_media_das_medias, 1)} | {jan} |")
+    if winner:
+        lines, sub = pair_table(f"vencedor da regra do B × outros online")
+        md += ["", f"### {winner} (1º pela regra do B) × outros online", ""] + lines
+        chosen, why = rule_b_choice(rank, sub)
+        md += ["", f"**Escolha pela regra do B: {chosen}** ({why}). Requisito do ciclo (p95 < 2,5 s): verificado pelo "
+                   "ciclo do pod com os 6 detectores juntos (`make detector-ciclo`; piloto 4: 0,48 s). "
+                   "Fixar em `HPA_B_DETECTOR` antes da Fase 3."]
+    else:
+        md += ["", "Sem alertas online nos dados (colunas `online_*`): sem regra do B nem comparações entre online."]
+    if T_t.empty:
         md += ["", "Sem teste t: é preciso N ≥ 2 execuções por detector e cenário."]
-    md += ["", "Com mais de 2 detectores por cenário, os testes par a par são exploratórios: o slide 65 indica ANOVA antes dos pares."]
+    md += ["", "Não há outras comparações (decisão 2). ANOVA antes dos pares (slide 65): pendente de decisão com o orientador."]
     write_outputs(out, sheets, md)
 
 

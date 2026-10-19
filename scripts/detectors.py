@@ -33,13 +33,14 @@ oscilação de latência sistemática logo após a troca aquecimento → roteiro
 docs/PILOTOS.md; docs/DECISOES_METODO.md, item 11). EVAL_SKIP_SECONDS=0 reproduz a
 avaliação antiga (e a da qualificação).
 
-Tolerância de atraso (EVAL_TOLERANCE_SECONDS, padrão 15; decisão 6 de
+Tolerância de atraso (EVAL_TOLERANCE_SECONDS, padrão 30; decisão 6 de
 docs/DECISOES_METODO.md): métrica SECUNDÁRIA. Além do F1 principal (sem tolerância),
 calcula precision_tol, recall_tol e f1_tol ignorando os pontos normais até
 EVAL_TOLERANCE_SECONDS depois do fim de cada janela anômala: um alerta que "transborda"
-por atraso do pipeline online não vira falso positivo. Calculada para todos os
-detectores; o relatório a mostra para os online. 15 s = 3 passos de 5 s (atraso medido
-do pipeline: 2–3 ciclos, docs/DETECTOR_ONLINE.md).
+por atraso não vira falso positivo. Calculada e reportada para todos os detectores,
+offline e online. 30 s = a janela dos sinais (rate[30s]: as entradas ainda carregam o pico
+até 30 s depois do fim) e cobre a mediana do transbordo online medido no piloto 4
+(10–25 s) e o p90 dos detectores de atraso puro (EWMA, IF: ~30 s). docs/DECISOES_METODO.md.
 
 Uso:
   python scripts/detectors.py --input datasets/burst_run1.csv --output results/
@@ -63,7 +64,7 @@ from typing import Optional
 import numpy as np
 
 EVAL_SKIP_SECONDS = float(os.environ.get("EVAL_SKIP_SECONDS", "60") or 0)
-EVAL_TOLERANCE_SECONDS = float(os.environ.get("EVAL_TOLERANCE_SECONDS", "15") or 0)
+EVAL_TOLERANCE_SECONDS = float(os.environ.get("EVAL_TOLERANCE_SECONDS", "30") or 0)
 
 # ── Tentar importar sklearn; informar se ausente ────────────────────────────
 try:
@@ -102,6 +103,8 @@ class DetectionResult:
     recall_tol: float = 0.0
     f1_tol: float = 0.0
     eval_tol_s: float = 0.0
+    windows_detected: int = 0   # janelas anômalas com ao menos um alerta verdadeiro (entram no MTTD)
+    windows_total: int = 0      # janelas anômalas avaliadas
 
 
 # =============================================================================
@@ -378,6 +381,7 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, timestamps: np.ndarr
     # MTTD: para cada janela anômala contígua no ground truth,
     # encontrar o primeiro alerta verdadeiro
     mttd = compute_mttd(y_true, y_pred, timestamps)
+    detected, total = count_windows(y_true, y_pred)
 
     return {
         "precision": round(precision, 4),
@@ -385,7 +389,27 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, timestamps: np.ndarr
         "f1": round(f1, 4),
         "mttd_seconds": round(mttd, 2),
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "windows_detected": detected, "windows_total": total,
     }
+
+
+def count_windows(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
+    """(janelas anômalas detectadas, janelas anômalas). Uma janela não detectada fica
+    FORA da média do MTTD (que só existe onde houve alerta); por isso o nº de detectadas
+    é reportado ao lado do MTTD."""
+    total = detected = 0
+    i, n = 0, len(y_true)
+    while i < n:
+        if y_true[i] == 1:
+            j = i
+            while j < n and y_true[j] == 1:
+                j += 1
+            total += 1
+            detected += int(np.any(np.asarray(y_pred)[i:j] == 1))
+            i = j
+        else:
+            i += 1
+    return detected, total
 
 
 def compute_mttd(y_true: np.ndarray, y_pred: np.ndarray, timestamps: np.ndarray) -> float:
@@ -395,7 +419,8 @@ def compute_mttd(y_true: np.ndarray, y_pred: np.ndarray, timestamps: np.ndarray)
       1. Marca t_início = primeiro timestamp com label=1
       2. Encontra primeiro alerta verdadeiro (pred=1 AND true=1) após t_início
       3. delay = t_alerta - t_início
-    MTTD = média dos delays.
+    MTTD = média dos delays. Janelas sem alerta verdadeiro ficam FORA da média
+    (o nº de janelas detectadas vem de count_windows); sem nenhuma detectada → inf.
     """
     delays = []
     in_anomaly = False
@@ -658,7 +683,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval-skip", type=float, default=EVAL_SKIP_SECONDS,
                         help="segundos iniciais fora da avaliação (acomodação; padrão EVAL_SKIP_SECONDS ou 60)")
     parser.add_argument("--eval-tol", type=float, default=EVAL_TOLERANCE_SECONDS,
-                        help="tolerância de atraso após cada pico, métrica secundária (padrão EVAL_TOLERANCE_SECONDS ou 15)")
+                        help="tolerância de atraso após cada pico, métrica secundária (padrão EVAL_TOLERANCE_SECONDS ou 30)")
     parser.add_argument("--impute", choices=["ffill", "zero"], default="zero",
                         help="Lacunas do Prometheus: zero (padrão, igual à qualificação) ou ffill")
     args = parser.parse_args()

@@ -20,6 +20,8 @@ Verifica:
       nenhum pico cortado, e 0 s reproduz a avaliação antiga
   12. o teste pareado da Fase 1 (decisão 1): IC da diferença por execução
   13. a tolerância de atraso após cada pico (EVAL_TOLERANCE_SECONDS, decisão 6)
+  14. as comparações planejadas da Fase 1 (decisão 2) e a regra de escolha do B,
+      com o grupo de empate e as janelas detectadas ao lado do MTTD
 """
 import json
 import logging
@@ -196,6 +198,63 @@ class T(unittest.TestCase):
                            "f1": list(a) + list(base[::-1])})
         rp = pairwise(df, "scenario", "detector", "f1", paired_on="_rep").iloc[0]
         self.assertAlmostEqual(rp["dif"], d.mean(), places=12)
+
+    def test_planned_pairs(self):
+        # decisão 2: só offline × online (6) e vencedor da regra do B × outros online (5), por cenário;
+        # o vencedor é o MESMO nos 3 cenários (maior média das 3 médias do F1 online)
+        import pandas as pd
+        from stats_tlc import planned_pairs, phase1
+        rng = np.random.default_rng(5)
+        f1_on = {"EWMA": [.30, .30, .30], "IF": [.60, .60, .40], "LOF": [.50, .50, .55],   # LOF vence o shift sozinho
+                 "DBSCAN": [.40, .40, .40], "AE": [.45, .45, .45], "LSTM": [.35, .35, .35]}
+        rows = []
+        for k, sc in enumerate(["burst", "rampup", "shift"]):
+            for det, v in f1_on.items():
+                for rep in range(1, 4):
+                    for name, f in ((det, v[k] - 0.1), (det + "_online", v[k])):
+                        rows.append(dict(detector=name, scenario=sc, run=f"run{rep}", f1=f + rng.normal(0, .01),
+                                         precision=.5, recall=.5, mttd_seconds=10.0, f1_tol=f))
+        det = pd.DataFrame(rows)
+        off_on, vs, winner, rank = planned_pairs(det)
+        self.assertEqual(winner, "IF_online")                                   # (.6+.6+.4)/3 > LOF (.5+.5+.55)/3
+        self.assertEqual(len(off_on), 6)
+        self.assertEqual(len(vs), 5)
+        self.assertTrue(all(a == "IF_online" and b.endswith("_online") for a, b in vs))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "det.csv"); det.to_csv(path, index=False)
+            phase1(path, None, tmp)
+            T = pd.read_csv(os.path.join(tmp, "2_teste_t.csv"))
+            rel = open(os.path.join(tmp, "relatorio.md")).read()
+        f1 = T[T.metrica == "f1"]
+        self.assertEqual(f1.groupby("scenario").size().tolist(), [11, 11, 11])   # nada além das 11 planejadas
+        self.assertEqual(set(f1[f1.familia.str.startswith("vencedor")].A), {"IF_online"})   # mesmo vencedor nos 3
+        self.assertIn("Escolha pela regra do B: IF_online", rel)
+
+    def test_rule_b_tie_group(self):
+        # grupo de empate = o 1º + todos sem diferença significativa para ele em nenhum cenário;
+        # dentro do grupo vence o menor MTTD (aqui o 3º do ranking)
+        import pandas as pd
+        from stats_tlc import rule_b_choice
+        rank = pd.DataFrame({"detector": ["A_online", "B_online", "C_online", "D_online"],
+                             "mttd_media_das_medias": [20.0, 15.0, 10.0, 5.0]})
+        nd, dif = "sem diferença significativa", "médias diferentes"
+        vs = pd.DataFrame({"B": ["B_online"] * 3 + ["C_online"] * 3 + ["D_online"] * 3,
+                           "conclusao": [nd, nd, nd] + [nd, nd, nd] + [nd, dif, nd]})   # D difere no 2º cenário
+        chosen, why = rule_b_choice(rank, vs)
+        self.assertEqual(chosen, "C_online")                       # o 3º entra no grupo e tem o menor MTTD
+        self.assertIn("A_online, B_online, C_online", why)         # D fora do grupo, apesar do menor MTTD
+        chosen2, _ = rule_b_choice(rank, vs.assign(conclusao=dif))
+        self.assertEqual(chosen2, "A_online")                      # ninguém empata → o 1º
+
+    def test_count_windows(self):
+        # MTTD só nas janelas detectadas; o nº de detectadas vai ao lado
+        import detectors as d
+        lab = np.array([0, 1, 1, 0, 0, 1, 1, 0, 1, 0])               # 3 janelas
+        pred = np.array([0, 0, 1, 0, 0, 0, 0, 0, 1, 0])              # detecta a 1ª e a 3ª
+        self.assertEqual(d.count_windows(lab, pred), (2, 3))
+        m = d.compute_metrics(lab, pred, np.arange(10) * 5.0)
+        self.assertEqual((m["windows_detected"], m["windows_total"]), (2, 3))
+        self.assertEqual(m["mttd_seconds"], 2.5)                     # (5 + 0)/2: a janela perdida fica fora
 
     def test_eval_tolerance(self):
         # decisão 6: pontos normais até EVAL_TOLERANCE_SECONDS após o fim de cada pico não contam (secundária)
