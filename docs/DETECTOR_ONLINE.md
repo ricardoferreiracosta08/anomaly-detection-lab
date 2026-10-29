@@ -193,7 +193,7 @@ O detector online também é uma carga no sistema que ele observa:
 
 **Medido:** em cada piloto e na Fase 1, a CPU do pod `online-detector` e o p95 de `detector_step_seconds` (`make detector-ciclo`; ao fim de `make experiment` e `make hpa-experiment` o resultado é salvo em `results/detector_ciclo_<fase>.txt`). No replay com 0,5 núcleo: ciclo médio 0,47 s, p95 1,13 s (seção 7).
 
-**Em aberto (decidir com o piloto 4):** na Fase 3, rodar **só** o detector do modo B (`DETECTOR_ALGOS=<HPA_B_DETECTOR>`, mais o do D se houver). A Fase 3 não calcula F1, então os outros 5 só gastariam CPU disputando com a app. Fica igual a produção e continua justo entre A, B e C.
+**Decidido (item 5 de [DECISOES_METODO.md](DECISOES_METODO.md), fechado em 28/out/2026):** na Fase 3, rodar **só** o detector do modo B (`DETECTOR_ALGOS=<HPA_B_DETECTOR>`, mais o do D se houver). A Fase 3 não calcula F1, então os outros 5 só gastariam CPU disputando com a app. Fica igual a produção e continua justo entre A, B e C, porque o mesmo pod roda nos três modos.
 
 ### Atraso ao vivo
 

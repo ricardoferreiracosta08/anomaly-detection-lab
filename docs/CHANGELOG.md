@@ -95,6 +95,12 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (28/out): decisões de método fechadas antes da Fase 1
+
+- `docs/DECISOES_METODO.md`: todas as decisões 1–13 **fechadas em 28/out/2026**, alinhadas com o orientador, antes da Fase 1 (inclusive 8: SLO 500 ms; 9: ameaças à validade; 10: IC t·S/√N; 13: ANOVA dispensada). Em aberto só o modo D, a decidir antes da Fase 3. Nenhuma mudança de método: o que estava adotado e implementado fica como está.
+- Atualizados para o mesmo estado: `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `PILOTOS.md`, `DETECTOR_ONLINE.md`, regras do projeto.
+- `RUNBOOK_VPS_VPN.md`: checklist com 19 testes no `selftest` e o `grep` do `.env` cobrindo `REPS`, `WARMUP_*`, `RESTART_APP` e `EVAL_*`.
+
 ## Novo (19/out): as duas famílias de comparação, lado a lado
 
 - `DECISOES_METODO.md` (itens 1 e 2), `EXPLICACAO.md` (seção 9) e `ESTADO_DO_PROJETO.md`: tabela das duas famílias da Fase 1 — **da escolha** (vencedor online × outros online: "quem detecta melhor ao vivo?" → decide a Fase 3) e **offline × online** ("o desempenho muda ao vivo?" → achado da dissertação, não escolhe ninguém); por que as duas são pareadas (mesmas execuções; mesmo CSV) e a Fase 3 não; hipótese a confirmar ("escolher pelo offline pode levar à escolha errada"). Nomes que evitam confusão com os modos A/B.

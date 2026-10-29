@@ -97,7 +97,7 @@ Precisão / recall ao vivo: EWMA 0,25/0,20 · IF 0,36/0,60 · LOF 0,23/0,48 · D
 | Rampas sobrepostas na troca aquecimento → roteiro | alertas de 15–45 s em AE, DBSCAN e LOF (piloto 3) | **implementado** (16/out) |
 | Piso relativo nas entradas (`DETECTOR_FEATURE_FLOOR` = 0,01) | salto de 0,25 MB na memória virava ~50σ (piloto 3) | **implementado** (16/out) |
 | Acomodação inicial de 60 s na avaliação da Fase 1 (`EVAL_SKIP_SECONDS`) | oscilação de latência sistemática logo após a troca aquecimento → roteiro (piloto 4) | **implementado** (16/out) |
-| Tolerância de atraso na avaliação (secundária, offline e online) | perda de precisão ao vivo × replay (piloto 1); transbordo medido nos dados do piloto 4 (abaixo) | **implementado** (18/out): **30 s**; aguardando confirmação do orientador |
+| Tolerância de atraso na avaliação (secundária, offline e online) | perda de precisão ao vivo × replay (piloto 1); transbordo medido nos dados do piloto 4 (abaixo) | **implementado** (18/out): **30 s**; fechado em 28/out/2026 |
 
 ## Piloto 3: plano e critério (fixados antes de rodar)
 
@@ -276,7 +276,7 @@ Registrar aqui como Piloto 4, com a saída do `make detector-ciclo` (p95 do cicl
 
    **Hipóteses descartadas:** réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas). **Improvável, não descartada:** retreino do LSTM a cada 60 s (segue o relógio do pod do detector, que não bate com o roteiro). A CPU por container nesses instantes ficou inconclusiva (coleta esparsa para janelas de 15 s).
 
-**Decisões (16/out/2026, Ricardo, antes da Fase 1; aguardando confirmação do orientador):**
+**Decisões (16/out/2026, Ricardo, antes da Fase 1; fechadas em 28/out/2026, alinhadas com o orientador):**
 - Fase 1 com os 6 detectores num pod só (critério do ciclo atendido);
 - **acomodação inicial da avaliação (burn-in) de 60 s** (`EVAL_SKIP_SECONDS=60`): na Fase 1, offline e online, os pontos com offset < 60 s ficam fora de F1, precisão, recall e MTTD; os detectores veem a série inteira. Trata o 1º tipo de episódio; o 2º (ruído do ambiente) continua contando. Nenhum pico é cortado (1ª anomalia aos 150/175 s). Não se aplica à Fase 3. Efeito registrado: a base do EWMA offline (primeiros 150 s) inclui a oscilação da troca; possível limiar um pouco mais largo (sem correção: parâmetros da qualificação). Registro: `DECISOES_METODO.md`, item 11. O `make check-inicio` passa a mostrar as duas partes (0–60 s e 60 s–1ª anomalia).
 
@@ -297,5 +297,5 @@ Complemento (mesmo cálculo, replay dos 9 CSVs da qualificação, só o atraso d
 
 **Leitura:** o atraso de verdade fica em ~30 s: os sinais (`rate[30s]`) explicam até ~25 s (replay) e o cluster soma o resto da mediana ao vivo (10–25 s); EWMA e IF online têm p90 ~30 s. A cauda de 72–100 s só aparece nos multivariados (memória e CPU somadas dos pods: pods extras ainda de pé depois do pico) e no EWMA offline (base fixa nos primeiros 150 s): é o estado do sistema após o escalonamento, não atraso.
 
-**Decisão (18/out/2026, Ricardo; aguardando confirmação do orientador):** tolerância de **30 s**, offline e online, como métrica secundária. Não o p90 total (~100 s): ele "perdoaria" um efeito que não é atraso e, com picos a cada 120 s no burst, apagaria quase todo o trecho normal.
+**Decisão (18/out/2026, Ricardo; fechada em 28/out/2026, alinhada com o orientador):** tolerância de **30 s**, offline e online, como métrica secundária. Não o p90 total (~100 s): ele "perdoaria" um efeito que não é atraso e, com picos a cada 120 s no burst, apagaria quase todo o trecho normal.
 

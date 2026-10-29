@@ -1,30 +1,32 @@
 # Decisões de método
 
-Um só lugar para as decisões de método: as que **ainda estão em aberto** e dependem do orientador, e as que **já foram tomadas**, com o motivo.
+Um só lugar para as decisões de método, com data, motivo e estado.
 
 > **Regra:** toda decisão em aberto é fechada **antes** da fase que ela afeta e registrada aqui (data + quem decidiu). Depois de fechada, não muda ao ver resultados. Se mudar, o motivo fica registrado.
 
-## TL;DR — em aberto
+## TL;DR — estado
 
-| # | Decisão | Afeta | Proposta | Fechar antes de |
+**Todas as decisões que afetam a Fase 1 estão fechadas** (alinhadas com o orientador; registro em 28/out/2026, antes da Fase 1). Em aberto, só o **modo D** (item 5), a decidir antes da Fase 3.
+
+| # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
-| 1 | Teste pareado ou não pareado | Fase 1 | **adotada e implementada** (aguarda orientador): pareado na Fase 1, não pareado na Fase 3 | Fase 1 |
-| 2 | Quais comparações fazer | Fase 1 | **adotada e implementada** (aguarda orientador): 6 offline × online + 5 vencedor da regra do B × outros online, por cenário | Fase 1 |
-| 3 | LSTM no rol e como candidato ao B | Fases 1 e 3 | **adotada** (aguarda orientador): manter; piloto 4: ciclo p95 0,48 s | Fase 1 |
-| 4 | Estado inicial da aplicação | Fases 1 e 3 | **adotada** (aguarda orientador): reiniciar com 100 itens | Fase 1 |
-| 5 | Detectores no cluster | Fases 1 e 3 | **adotada** (aguarda orientador): Fase 1 com os 6 num pod; Fase 3 só o do B, **igual nos modos A, B e C**; modo D: decidir antes da Fase 3 | Fase 1 / Fase 3 |
-| 6 | Tolerância de atraso na avaliação | Fase 1 | **adotada e implementada** (aguarda orientador): sem (principal) e com **30 s** (secundário), offline e online | Fase 1 |
-| 7 | Detector do modo B e métrica principal | Fase 3 | **regra registrada em 16/out/2026** (ver item 7); métrica: tempo de reação | Fase 3 |
-| 8 | Valor do SLO (500 ms) | Fase 3 | manter + sensibilidade com outros limites | Fase 3 |
-| 9 | Ameaças à validade suficientes? | escrita | declarar as limitações | escrita |
-| 10 | Forma do IC (t·S/√N × t·S) | Fases 1 e 3 | t·S/√N (atual) | Fase 1 |
-| 11 | Acomodação inicial da avaliação (burn-in) | Fase 1 | **adotada** (aguarda orientador): 60 s fora da pontuação (`EVAL_SKIP_SECONDS`) | Fase 1 |
-| 12 | Janela do detector online | Fases 1 e 3 | **adotada** (aguarda orientador): 5 min, valor da qualificação; sensibilidade só por replay | Fase 1 |
-| 13 | ANOVA antes dos pares (slide 65) | Fases 1 e 3 | proposta: dispensada, porque as comparações são planejadas | Fase 1 |
+| 1 | Teste pareado ou não pareado | Fases 1 e 3 | pareado na Fase 1, não pareado na Fase 3 | **fechada** (implementada) |
+| 2 | Quais comparações fazer | Fase 1 | 6 offline × online + 5 vencedor da regra do B × outros online, por cenário | **fechada** (implementada) |
+| 3 | LSTM no rol e como candidato ao B | Fases 1 e 3 | manter; piloto 4: ciclo p95 0,48 s | **fechada** (implementada) |
+| 4 | Estado inicial da aplicação | Fases 1 e 3 | reiniciar com 100 itens | **fechada** (implementada) |
+| 5 | Detectores no cluster | Fases 1 e 3 | Fase 1 com os 6 num pod; Fase 3 só o do B, **igual nos modos A, B e C** | **fechada**; modo D **em aberto** (antes da Fase 3) |
+| 6 | Tolerância de atraso na avaliação | Fase 1 | sem (principal) e com **30 s** (secundário), offline e online | **fechada** (implementada) |
+| 7 | Detector do modo B e métrica principal | Fase 3 | regra registrada em 16/out/2026 (ver item 7); métrica: tempo de reação | **fechada** (implementada) |
+| 8 | Valor do SLO | Fase 3 | 500 ms + sensibilidade a 300 ms e 1 s | **fechada** |
+| 9 | Ameaças à validade | escrita | declarar as limitações listadas no item 9 | **fechada** |
+| 10 | Forma do IC (t·S/√N × t·S) | Fases 1 e 3 | t·S/√N; t·S só na coluna `H_tDP`, para comparação | **fechada** (implementada) |
+| 11 | Acomodação inicial da avaliação (burn-in) | Fase 1 | 60 s fora da pontuação (`EVAL_SKIP_SECONDS`) | **fechada** (implementada) |
+| 12 | Janela do detector online | Fases 1 e 3 | 5 min, valor da qualificação; sensibilidade só por replay | **fechada** (implementada) |
+| 13 | ANOVA antes dos pares (slide 65) | Fases 1 e 3 | dispensada, porque as comparações são planejadas | **fechada** |
 
 ---
 
-## Em aberto
+## Cada decisão, com o motivo
 
 ### 1. Teste pareado ou não pareado (Fase 1)
 
@@ -38,7 +40,7 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 **Proposta.** Pareado na Fase 1. Na Fase 3 continua não pareado, porque lá A, B e C são execuções independentes.
 
-**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`paired_test` em `scripts/stats_tlc.py`):
+**Adotada em 16/out/2026 (Ricardo); fechada em 28/out/2026, alinhada com o orientador. Implementada em 18/out/2026** (`paired_test` em `scripts/stats_tlc.py`):
 - **Fase 1:** cada par (detector × detector, ou offline × online) é comparado **execução a execução**. O pareamento vale nas **duas famílias** do item 2: online × online porque os dois rodaram ao vivo nas mesmas execuções; offline × online porque os dois foram calculados sobre o mesmo CSV. Fórmula: d = Y_A − Y_B em cada execução, IC 95% de d̄ = d̄ ± t(0,975; N−1)·S_d/√N (a mesma fórmula do IC da média), t = d̄/(S_d/√N), gl = N − 1, p bilateral. Diferença significativa se o IC não contém o 0. O relatório (`results/stats/phase1/relatorio.md`) mostra N, a diferença, o IC da diferença, t, gl e p.
 - **Fase 3:** continua o t não pareado do material [AR 66] (gl = nA + nB − 2) com o teste visual dos ICs [AR 64].
 - `make selftest` (`test_paired_test`): confere a fórmula, o alinhamento pela execução e um caso em que o pareado vê uma melhora constante que o não pareado não vê.
@@ -56,7 +58,7 @@ Um só lugar para as decisões de método: as que **ainda estão em aberto** e d
 
 **Proposta.** (a), definida antes da Fase 1.
 
-**Adotada em 18/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`planned_pairs` e `rule_b_ranking` em `scripts/stats_tlc.py`). Só estas comparações, com o teste pareado (decisão 1), **iguais em todos os cenários**:
+**Adotada em 18/out/2026 (Ricardo); fechada em 28/out/2026, alinhada com o orientador. Implementada em 18/out/2026** (`planned_pairs` e `rule_b_ranking` em `scripts/stats_tlc.py`). Só estas comparações, com o teste pareado (decisão 1), **iguais em todos os cenários**:
 1. **offline × online do mesmo detector:** 6 por cenário (EWMA × EWMA_online, …, LSTM × LSTM_online);
 2. **o vencedor da regra do B × cada um dos outros 5 online:** 5 por cenário. "Vencedor" = o 1º pela regra pré-registrada (maior **média das 3 médias** do F1 online), **o mesmo detector nos 3 cenários**; não se escolhe um "melhor" por cenário. Assim as 5 comparações respondem a uma pergunta só: o escolhido para o B é de fato melhor que os outros, ou empata? O par 1º × 2º, que a regra usa no desempate, está incluído.
 
@@ -85,7 +87,7 @@ Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste �
 
 **Piloto 4:** ciclo com os 6 detectores p95 0,478 s (média 0,235 s), CPU do pod ~0,03 núcleo, 0 reinícios. Critério atendido.
 
-**Adotada em 16/out/2026 (Ricardo; já implementada); aguardando confirmação do orientador.**
+**Adotada em 16/out/2026 (Ricardo; já implementada); fechada em 28/out/2026, alinhada com o orientador.**
 
 ### 4. Estado inicial da aplicação
 
@@ -97,7 +99,7 @@ Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste �
 
 **Piloto 4:** 100;100 itens por pod no início das 3 execuções (`warmup_log.csv`); a latência de A, B e C voltou a ser comparável (414–539 ms nos picos; no piloto 3, B e C chegaram a 975 e 1.200 ms).
 
-**Adotada em 16/out/2026 (Ricardo; já implementada); aguardando confirmação do orientador.**
+**Adotada em 16/out/2026 (Ricardo; já implementada); fechada em 28/out/2026, alinhada com o orientador.**
 
 ### 5. Detectores no cluster (custo da observação)
 
@@ -109,7 +111,7 @@ Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste �
 
 **Piloto 4:** ciclo p95 0,478 s e CPU do pod ~0,03 núcleo (média de 1 min) com os 6.
 
-**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador.** Na Fase 3, `DETECTOR_ALGOS` passa a ter só o detector do B (e o do D, se usado), fixado junto com a escolha do B.
+**Adotada em 16/out/2026 (Ricardo); fechada em 28/out/2026, alinhada com o orientador.** Na Fase 3, `DETECTOR_ALGOS` passa a ter só o detector do B (e o do D, se usado), fixado junto com a escolha do B.
 
 **Esclarecido em 18/out/2026:** na Fase 3 o detector roda **igual nos modos A, B e C**, não só no B. O pod `online-detector` é um só, implantado com `DETECTOR_ALGOS` fixo, e fica de pé o tempo todo; o modo do HPA só muda quem **lê** o `anomaly_level`. Assim o custo de CPU do detector é o mesmo nos três modos, e a comparação é justa. **Modo D (2º detector) — decidir antes da Fase 3:** ou o D sai (`HPA_MODES=A,B,C`, o padrão), ou os dois detectores (o do B e o do D) rodam em **todos** os modos, e o custo é igual de novo. Proposta: D sai.
 
@@ -119,10 +121,10 @@ Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste �
 
 **Proposta.** Reportar o F1 online sem tolerância (principal) e com uma tolerância fixa após o fim do pico (secundário). O valor da tolerância é fixado antes.
 
-**Adotada em 16/out/2026 (Ricardo); aguardando confirmação do orientador. Implementada em 18/out/2026** (`tolerance_mask` em `scripts/detectors.py`):
+**Adotada em 16/out/2026 (Ricardo); fechada em 28/out/2026, alinhada com o orientador. Implementada em 18/out/2026** (`tolerance_mask` em `scripts/detectors.py`):
 - **Principal:** F1, precisão, recall e MTTD **sem tolerância** (como sempre).
 - **Secundário:** `f1_tol`, `precision_tol` e `recall_tol`, com os pontos **normais** até `EVAL_TOLERANCE_SECONDS` depois do fim de cada janela anômala **fora da conta**. **Offline e online**, calculado e reportado para todos, para a comparação offline × online ser justa.
-- **Valor: 30 s — adotado em 18/out/2026 (Ricardo); aguardando confirmação do orientador.** Depois de confirmado, não muda. Medido em dados de **piloto e da qualificação, nunca da Fase 1**: segundos de alerta contínuo depois do fim de cada pico.
+- **Valor: 30 s — adotado em 18/out/2026 (Ricardo); fechado em 28/out/2026, alinhado com o orientador.** Não muda depois de ver resultados. Medido em dados de **piloto e da qualificação, nunca da Fase 1**: segundos de alerta contínuo depois do fim de cada pico.
 
   | Fonte | Detectores | mediana | p90 | máx |
   |---|---|---|---|---|
@@ -146,7 +148,7 @@ Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste �
 
   O relatório da Fase 1 aplica a regra (`rule_b_choice` em `stats_tlc.py`) e escreve a escolha; `make selftest` testa um grupo de 3 em que o 3º vence pelo MTTD.
 
-  Falta só a confirmação do orientador; o texto não muda depois de ver os resultados da Fase 1.
+  Regra fechada em 28/out/2026, alinhada com o orientador; o texto não muda depois de ver os resultados da Fase 1.
 
 Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o detector, `DETECTOR_*` nem `ANOMALY_TARGET`.
 
@@ -155,6 +157,8 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 **Situação.** Os 500 ms são uma escolha do experimento: o Kubernetes não define SLO. O valor é o mesmo limite da fase normal do roteiro k6 da qualificação (`normal_phase_latency: p(95)<500`). O conceito de SLO vem de Beyer et al. (2016), *Site Reliability Engineering*, cap. 4.
 
 **Proposta.** Manter 500 ms. Como análise de sensibilidade, recalcular a violação de SLO com outros limites (por exemplo, 300 ms e 1 s). Isso não exige rodar nada de novo. O tempo de reação, a métrica principal, não depende do SLO.
+
+**Decisão — fechada em 28/out/2026, alinhada com o orientador:** 500 ms, com a sensibilidade a 300 ms e 1 s.
 
 ### 9. Ameaças à validade
 
@@ -167,13 +171,15 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 - detector disputando CPU com a aplicação;
 - oscilações de latência num pod só, em instantes irregulares, de origem do ambiente (item 11): entram como ruído, igual para todos os detectores.
 
-**Pergunta.** Isso é suficiente para o escopo do mestrado?
+**Decisão — fechada em 28/out/2026, alinhada com o orientador:** a lista acima basta para o escopo do mestrado e entra na dissertação.
 
 ### 10. Forma do IC
 
 **Situação.** O `stats_tlc.py` usa Ȳ ± t·S/√N. Um exemplo do material usa a forma t·S, que está guardada na coluna `H_tDP` para comparação.
 
-**Proposta.** Manter t·S/√N, que é o IC da média. Confirmar com o orientador.
+**Proposta.** Manter t·S/√N, que é o IC da média.
+
+**Decisão — fechada em 28/out/2026, alinhada com o orientador:** t·S/√N. A forma t·S fica só na coluna `H_tDP`, para comparação.
 
 ### 11. Acomodação inicial da avaliação (burn-in) — piloto 4
 
@@ -186,7 +192,7 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 
 Hipóteses descartadas: réplicas da execução anterior descendo no aquecimento (o código espera as 2 réplicas antes do aquecimento; memória estável no início do B); pod novo somando memória (o degrau do C veio depois dos alertas). Hipótese **improvável, não descartada**: retreino do LSTM a cada 60 s (segue o relógio do pod do detector, que não bate com o roteiro). Detalhes: [PILOTOS.md](PILOTOS.md), piloto 4.
 
-**Decisão — adotada em 16/out/2026 (Ricardo), antes da Fase 1; aguardando confirmação do orientador.**
+**Decisão — adotada em 16/out/2026 (Ricardo), antes da Fase 1; fechada em 28/out/2026, alinhada com o orientador.**
 - Na avaliação da **Fase 1** (offline **e** online, mesma regra), os pontos com `offset_seconds` < **60 s** (`EVAL_SKIP_SECONDS`) **não entram** em F1, precisão, recall e MTTD. Os detectores continuam rodando sobre a série inteira; só a pontuação ignora o trecho. Vale também no `make online-replay`.
 - **Nenhum pico é cortado:** a 1ª anomalia do gabarito começa aos **150 s** (burst e shift) e **175 s** (rampup), conferido em `ANOMALY_PHASES`. O gabarito, os roteiros k6 e os parâmetros dos detectores não mudam.
 - **Os alarmes entre 60 s e a 1ª anomalia continuam contando** (o 2º tipo de episódio é ruído real).
@@ -195,13 +201,13 @@ Hipóteses descartadas: réplicas da execução anterior descendo no aquecimento
 - `EVAL_SKIP_SECONDS=0` reproduz a avaliação antiga e a da qualificação (verificado: offline 45/45 com `results_qualificacao/`, LSTM 9/9, replay online 54/54).
 - Por quê 60 s: cobre o 1º tipo de episódio nas 3 execuções (até 50 s) com folga, longe da 1ª anomalia (150 s). Descartar o transiente inicial ("burn-in") é procedimento padrão em avaliação de desempenho, desde que decidido antes e registrado.
 
-**Fechar antes de:** Fase 1 (fechada; falta a confirmação do orientador).
+**Fechar antes de:** Fase 1 (fechada em 28/out/2026).
 
 ### 12. Janela do detector online (5 min)
 
 **Situação.** A janela de referência do detector online (`DETECTOR_WINDOW` = 60 pontos = 5 min, mais o gap de 30 s) é um **parâmetro do detector ao vivo**: diferente do SLO e da ANOVA, que são análise, ela não pode mudar depois da Fase 1 sem rodar tudo de novo.
 
-**Decisão — adotada em 18/out/2026 (Ricardo); aguardando confirmação do orientador.** Fixada em **5 min**, o valor da qualificação. A sensibilidade a outras janelas só é avaliada por **replay**, como análise complementar declarada como tal, sem mudar o experimento.
+**Decisão — adotada em 18/out/2026 (Ricardo); fechada em 28/out/2026, alinhada com o orientador.** Fixada em **5 min**, o valor da qualificação. A sensibilidade a outras janelas só é avaliada por **replay**, como análise complementar declarada como tal, sem mudar o experimento.
 
 **Fechar antes de:** Fase 1.
 
@@ -209,7 +215,7 @@ Hipóteses descartadas: réplicas da execução anterior descendo no aquecimento
 
 **Situação.** O material recomenda ANOVA antes das comparações par a par com 3 ou mais grupos. A ANOVA protege contra muitas comparações feitas **sem plano**.
 
-**Proposta (aguardando o orientador).** Dispensar a ANOVA: as comparações são **planejadas e definidas antes** (decisão 2: 11 por cenário na Fase 1; B×A, B×C e C×A na Fase 3), cada uma respondendo a uma pergunta da pesquisa.
+**Decisão — fechada em 28/out/2026, alinhada com o orientador.** Dispensar a ANOVA: as comparações são **planejadas e definidas antes** (decisão 2: 11 por cenário na Fase 1; B×A, B×C e C×A na Fase 3), cada uma respondendo a uma pergunta da pesquisa.
 
 **Fechar antes de:** Fase 1.
 ---

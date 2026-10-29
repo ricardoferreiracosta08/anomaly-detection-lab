@@ -82,7 +82,7 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 
 **Já em vigor e validadas:** aquecimento no modo A; rampas sobrepostas; app reiniciada antes de cada execução; piso das notas 0,05; piso nas entradas 0,01; modo C como controle; estatística do material.
 
-**Adotadas por Ricardo, implementadas, aguardando a confirmação do orientador:**
+**Fechadas em 28/out/2026, antes da Fase 1 (alinhadas com o orientador):**
 
 | # | Decisão |
 |---|---|
@@ -90,13 +90,15 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 | 2 | só comparações planejadas (6 + 5 por cenário) |
 | 3 | LSTM no rol e candidato ao B |
 | 4 | app reiniciada com 100 itens |
-| 5 | Fase 1 com os 6 num pod; Fase 3 só o detector do B, **igual em A, B e C**; modo D: sair (proposta) ou rodar os dois detectores em todos os modos — decidir antes da Fase 3 |
+| 5 | Fase 1 com os 6 num pod; Fase 3 só o detector do B, **igual em A, B e C**; modo D: **em aberto** — sair (proposta) ou rodar os dois detectores em todos os modos; decidir antes da Fase 3 |
 | 6 | tolerância de atraso de 30 s, secundária, offline e online |
 | 7 | regra de escolha do B + métrica principal (tempo de reação) |
 | 11 | acomodação de 60 s na avaliação da Fase 1 |
 | 12 | janela do detector fixa em 5 min (valor da qualificação); sensibilidade só por replay |
-
-**Propostas para o orientador:** 8 (SLO 500 ms, com sensibilidade a 300 ms e 1 s), 10 (forma do IC: t·S/√N), 13 (ANOVA dispensada, porque as comparações são planejadas), 9 (ameaças à validade: cluster de 1 nó, carga sintética, app de teste, VPS compartilhada, partida a frio fora do escopo, detector disputando CPU com a app, ruído de latência por pod).
+| 8 | SLO 500 ms, com sensibilidade a 300 ms e 1 s |
+| 10 | forma do IC: t·S/√N |
+| 13 | ANOVA dispensada, porque as comparações são planejadas |
+| 9 | ameaças à validade declaradas: cluster de 1 nó, carga sintética, app de teste, VPS compartilhada, partida a frio fora do escopo, detector disputando CPU com a app, ruído de latência por pod |
 
 ## 7. Pilotos
 
@@ -129,7 +131,7 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 ## 10. Próximos passos
 
 1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (19 testes).
-2. **Com o orientador:** confirmar as decisões adotadas (sobretudo 1, 2, 6, 11 e 12) e fechar as propostas 8, 10 e 13.
+2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Em aberto só o modo D.
 3. **Fase 1:** checklist do runbook; `make clean`; `make experiment` (~11 h).
 4. **Entre as fases:** o relatório da Fase 1 aplica a regra do B; fixar `HPA_B_DETECTOR` e `DETECTOR_ALGOS` da Fase 3; decidir o modo D.
 5. **Antes da Fase 3:** verificar a causa do 2º tipo de oscilação (throttling?); `make hpa-mode HPA_MODE=B && make phase2-check`; `make hpa-experiment` (~32 h).

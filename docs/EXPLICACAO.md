@@ -215,17 +215,17 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 - os 6 detectores;
 - os 4 vieses corrigidos;
 - as regras de avaliação e estatística implementadas e testadas (19 testes);
+- as decisões de método fechadas com o orientador (28/out/2026);
 - a documentação completa.
 
 **Falta:**
 1. Atualizar a VPS (`git pull`, `make build-analysis`, `make selftest`).
-2. Confirmar com o orientador as decisões adotadas: pareado, comparações planejadas, 60 s, 30 s, janela de 5 min, ANOVA dispensada.
-3. **Rodar a Fase 1** (~11 h). A regra escolhe o detector do B.
-4. Antes da Fase 3: decidir o modo D e checar os "soluços" de um pod.
-5. **Rodar a Fase 3** (~32 h), analisar e escrever.
+2. **Rodar a Fase 1** (~11 h). A regra escolhe o detector do B.
+3. Antes da Fase 3: decidir o modo D e checar os "soluços" de um pod.
+4. **Rodar a Fase 3** (~32 h), analisar e escrever.
 
 ```
-Pilotos 1–4 ✅ → orientador confirma → Fase 1 (~11 h) → campeão → Fase 3 (~32 h) → análise e escrita
+Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 (~11 h) → campeão → Fase 3 (~32 h) → análise e escrita
 ```
 
 ---
