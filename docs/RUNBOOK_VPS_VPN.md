@@ -64,7 +64,7 @@ make clean                               # apaga datasets/, datasets_hpa/ e resu
 make experiment                          # Fase 1 (≈ 11 h: 8 h + 2,75 h de aquecimento): 6 detectores × 3 cargas × 10
 #   → escolher o detector em results/stats/phase1/relatorio.md e fixar HPA_B_DETECTOR no .env
 make hpa-mode HPA_MODE=B && make phase2-check   # o B recebe a anomalia? (o hpa-experiment troca o modo sozinho a cada execução)
-make hpa-experiment                      # Fase 3 (≈ 32 h: 24 h + 8,25 h de aquecimento): HPA A × B × C × 3 cargas × 10
+make hpa-experiment                      # Fase 3 (≈ 35 h: 24 h + 8,25 h de aquecimento + ~2,7 h até o fim da janela medida): HPA A × B × C × 3 cargas × 10
 ```
 
 **No notebook:** Grafana em `http://<IP_DA_VPN>:5090`. No fim: `scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results .`
@@ -188,7 +188,7 @@ Todos devem mostrar `0-5`. O HPA mede a CPU em relação ao `request` de cada po
 
 **Entre as fases:** escolha o detector do modo B pelo F1 online em `results/stats/phase1/relatorio.md` e fixe `HPA_B_DETECTOR` no `.env`. Não troque depois (ver [HPA.md](HPA.md), seção 3).
 
-**Fase 3** (cerca de 32 h com REPS=10: 24 h de execuções + 90 aquecimentos de 330 s ≈ 8,25 h): HPA A (CPU 50%), B (CPU + anomalia), C (CPU 35%, controle) × 3 cargas × `REPS`.
+**Fase 3** (cerca de 35 h com REPS=10: 24 h de execuções + 90 aquecimentos de 330 s ≈ 8,25 h + ~2,7 h esperando o fim da janela medida antes de exportar): HPA A (CPU 50%), B (CPU + anomalia), C (CPU 35%, controle) × 3 cargas × `REPS`.
 
 ```bash
 make hpa-mode HPA_MODE=B   # a métrica de anomalia só entra no HPA no modo B

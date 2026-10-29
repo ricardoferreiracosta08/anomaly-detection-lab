@@ -95,6 +95,12 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (29/out): pontos-fantasma no fim do CSV (decisão 16)
+
+- **Causa:** a janela exportada (`DURATION`: 720/780/960 s, a da qualificação) passa do fim dos roteiros k6 (618/560/910 s). A exportação rodava ~15 s depois do fim do k6 e pedia pontos do futuro. O Prometheus os preenche repetindo o último valor dos gauges (memória, alertas online, réplicas) por até 5 min. No rampup são ~36 pontos por execução (23% do CSV). A qualificação tem o mesmo rabo.
+- **Fase 1:** fica como foi, e nenhum número oficial muda. A sensibilidade (conta que reproduz exatamente os F1 oficiais, sem os pontos-fantasma) dá LSTM 0,481 e IF 0,476: a escolha do B não muda. Registrado no item 9 e no item 16 de `DECISOES_METODO.md`, e em `FASE1_EXPLICADA.md`.
+- **Fase 3:** o `bin/experiment.sh` espera até início + `DURATION` + 15 s antes de exportar e de rodar o `hpa_metrics.py`, para o `pod_seconds` e o CSV só terem dado medido. A Fase 3 passa de ~32 h para ~35 h. Atualizados `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `HPA.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto.
+
 ## Novo (29/out): drift e shift decididos antes da Fase 3
 
 - `docs/DECISOES_METODO.md`, itens 14 e 15, e item 9 (ameaças), decididos depois da Fase 1, só com dados de ambiente:

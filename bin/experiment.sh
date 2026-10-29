@@ -266,7 +266,17 @@ one_run() {   # one_run <modo|-> <cenario> <rep>
         log "✗ $key inválida (k6 sem resumo; queda de conexão?). Será refeita na próxima chamada."
         return
     fi
-    sleep 15   # último scrape + janela de rate()
+    # A janela exportada (DURATION, herdada da qualificação) passa do fim do roteiro k6
+    # (burst 618 s, rampup 560 s, shift 910 s). Exportar logo após o k6 pedia pontos do
+    # futuro, que o Prometheus preenche repetindo o último valor dos gauges (memória,
+    # alertas, réplicas). A Fase 1 (e a qualificação) foi exportada assim e fica como está;
+    # na Fase 3 espera o fim da janela, para pod_seconds e o CSV só terem dado medido (decisão 16).
+    if [ "$PHASE" = "phase3" ]; then
+        local rest=$(( start + DURATION[$sc] + 15 - $(date +%s) ))
+        if (( rest > 0 )); then log "→ aguardando ${rest}s até o fim da janela medida (${DURATION[$sc]}s)"; sleep "$rest"; fi
+    else
+        sleep 15   # último scrape + janela de rate()
+    fi
     analysis export_metrics.py --scenario "$sc" --duration "${DURATION[$sc]}" --start "$start" --output "$csv"
     if [ "$mode" != "-" ]; then
         analysis hpa_metrics.py --mode "$mode" --scenario "$sc" --run "$rep" --start "$start" \

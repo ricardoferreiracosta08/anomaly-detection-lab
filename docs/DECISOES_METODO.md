@@ -6,7 +6,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 
 ## TL;DR — estado
 
-**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14 e 15 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). Falta confirmá-las com o orientador.
+**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). Falta confirmá-las com o orientador.
 
 | # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
@@ -24,6 +24,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 | 12 | Janela do detector online | Fases 1 e 3 | 5 min, valor da qualificação; sensibilidade só por replay | **fechada** (implementada) |
 | 13 | ANOVA antes dos pares (slide 65) | Fases 1 e 3 | dispensada, porque as comparações são planejadas | **fechada** |
 | 14 | Drift de desempenho ao longo do dia | Fase 3 | manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação | **fechada** em 29/out/2026 (implementada) |
+| 16 | Janela exportada além do fim do k6 ("pontos-fantasma") | Fase 3 | na Fase 3, esperar o fim da janela antes de exportar; a Fase 1 fica como foi (igual à qualificação), com sensibilidade registrada | **fechada** em 29/out/2026 (implementada) |
 | 15 | Shift já começa escalado | Fase 3 | manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado | **fechada** em 29/out/2026 (já implementada) |
 
 ---
@@ -177,10 +178,11 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 
 **Decisão — fechada em 28/out/2026, alinhada com o orientador:** a lista acima basta para o escopo do mestrado e entra na dissertação.
 
-**Acrescentadas em 29/out/2026, depois da Fase 1** (achados de ambiente; tratamento nos itens 14 e 15):
+**Acrescentadas em 29/out/2026, depois da Fase 1** (achados de ambiente; tratamento nos itens 14, 15 e 16):
 - **drift de desempenho ao longo do dia:** com a mesma carga e a app reiniciada, a latência da fase normal subiu de 2 a 5 vezes entre a madrugada e o meio-dia (item 14);
 - **shift fora da condição inicial:** nas 10 execuções do shift, o HPA já tinha escalado no aquecimento (3 a 7 réplicas ao fim dele, em vez de 2) (item 15);
-- **alertas na "fase normal" que sobe:** no rampup e no shift, o roteiro aumenta a carga antes da 1ª anomalia do gabarito. O rampup vai de 10 para 40 e depois 65 usuários ("degraus 1 e 2"), e o shift de 30 para 50. Os detectores online alarmam em 57–99% desses pontos (exceto o EWMA), contra 5–19% no burst, cujo roteiro fica no nível do aquecimento. Isso baixa a precisão online nesses cenários, igual para todos os detectores. Na Fase 3, o B pode escalar antes da 1ª anomalia (`false_scaleups`). Gabarito, roteiros e aquecimento não mudam. Os pilotos 3 e 4, que validaram "alertas iniciais perto de 0%", foram só com burst. Detalhes: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5.
+- **alertas na "fase normal" que sobe:** no rampup e no shift, o roteiro aumenta a carga antes da 1ª anomalia do gabarito. O rampup vai de 10 para 40 e depois 65 usuários ("degraus 1 e 2"), e o shift de 30 para 50. Os detectores online alarmam em 57–99% desses pontos (exceto o EWMA), contra 5–19% no burst, cujo roteiro fica no nível do aquecimento. Isso baixa a precisão online nesses cenários, igual para todos os detectores. Na Fase 3, o B pode escalar antes da 1ª anomalia (`false_scaleups`). Gabarito, roteiros e aquecimento não mudam. Os pilotos 3 e 4, que validaram "alertas iniciais perto de 0%", foram só com burst. Detalhes: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5;
+- **pontos-fantasma no fim do CSV:** a janela exportada passa do fim do k6, e os últimos pontos repetem o último valor dos gauges, inclusive alertas (até 23% do CSV no rampup). Igual à qualificação. Sensibilidade: o LSTM continua escolhido (item 16).
 
 ### 10. Forma do IC
 
@@ -275,6 +277,32 @@ Hipóteses ainda não verificadas: carga diurna dos outros serviços da VPS; thr
   - as janelas sem reação (`windows_no_reaction` / `n_windows`);
   - as réplicas ao fim do aquecimento (`available` no `warmup_log.csv`).
 - O shift é lido **à parte** de burst e rampup, como já é feito por cenário; o texto deixa claro que ele parte de outra condição inicial.
+
+**Fechar antes de:** Fase 3.
+
+### 16. Janela exportada além do fim do k6 ("pontos-fantasma")
+
+**Situação.** A janela exportada de cada execução (`DURATION` no [experiment.sh](../bin/experiment.sh)) é a da qualificação: burst 720 s, rampup 780 s, shift 960 s. Os roteiros k6 acabam antes: 618 s, 560 s e 910 s. A exportação rodava ~15 s depois do fim do k6, ou seja, pedia ao Prometheus pontos que **ainda não existiam**.
+
+Para esses pontos do futuro, o Prometheus devolve:
+- **vazio**, nas métricas de taxa (latência, CPU, req/s);
+- o **último valor repetido**, por até 5 min, nos gauges (memória, alertas online, réplicas).
+
+Tamanho do efeito na Fase 1:
+
+| Cenário | Pontos-fantasma por execução | % do CSV | Alertas repetidos = 1 nas 10 execuções |
+|---|---|---|---|
+| burst | ~12 | 9% | nenhum |
+| rampup | ~36 | 23% | IF 109, AE 144, LOF 36, LSTM 36 |
+| shift | 2 | 1% | 12–20 por detector |
+
+A qualificação tem o mesmo rabo (o `rampup_run1` dela está vazio depois de ~590 s, com a memória repetida). Os alertas repetidos com valor 1 contam como falso positivo.
+
+**Sensibilidade na Fase 1** (só para conferir; os números oficiais não mudam). A conta reproduz exatamente os F1 oficiais; depois foram tirados os pontos-fantasma. O F1 online médio passa de 0,476 para 0,481 no LSTM e de 0,464 para 0,476 no IF. **A escolha não muda:** o LSTM segue em 1º. O burst não tem fantasmas, e nele o IF continua significativamente diferente do LSTM, então fica fora do empate. E o critério de desempate (MTTD) não depende do rabo. A folga entre os dois cai de 0,012 para 0,005, o que reforça a frase "o IF foi melhor no burst" no texto.
+
+**Decisão — Ricardo, 29/out/2026, antes da Fase 3.**
+- **Fase 1:** fica como foi, igual à qualificação. Os números oficiais não mudam; o artefato e a sensibilidade acima entram como limitação (item 9).
+- **Fase 3:** antes de exportar o CSV e calcular as métricas do HPA, o script espera até início + `DURATION` + 15 s. Assim, o `pod_seconds` (custo) e o CSV só têm dado medido: o fim da janela passa a ser o HPA real descendo depois da carga, não a última contagem de réplicas repetida. A janela continua a mesma da Fase 1 e dos pilotos. Custo: ~2,7 h a mais na Fase 3 (de ~32 para ~35 h).
 
 **Fechar antes de:** Fase 3.
 

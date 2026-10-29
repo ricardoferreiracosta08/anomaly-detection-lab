@@ -4,7 +4,7 @@
 
 ## 0. Em uma frase
 
-Os 6 detectores vigiaram ao vivo as mesmas 30 execuções. O **LSTM online** foi o melhor no conjunto e o mais rápido, e a regra escrita antes dos dados o escolheu para o modo B. No caminho apareceram três coisas do **ambiente** que não estragam a Fase 1, mas precisam de cuidado na Fase 3.
+Os 6 detectores vigiaram ao vivo as mesmas 30 execuções. O **LSTM online** foi o melhor no conjunto e o mais rápido, e a regra escrita antes dos dados o escolheu para o modo B. No caminho apareceram quatro coisas de **ambiente e medição** que não estragam a Fase 1, mas precisam de cuidado na Fase 3.
 
 ---
 
@@ -142,7 +142,7 @@ No **burst**, onde o roteiro fica no nível do aquecimento, quase não há alarm
 
 ---
 
-## 6. As duas surpresas do ambiente
+## 6. As surpresas do ambiente e da medição
 
 ### O shift não "cabe" em 2 pods
 
@@ -163,6 +163,35 @@ Com a mesma carga e a app reiniciada toda vez, a latência da fase normal ficou 
 | shift | ~16 ms | 72–80 ms |
 
 Houve também um soluço isolado às 05h30, que voltou ao normal às 07h. Suspeita principal, **ainda não verificada**: os outros serviços da VPS trabalham mais de dia e disputam CPU com o laboratório.
+
+### Os "pontos-fantasma" no fim do CSV
+
+Cada CSV cobre uma janela fixa, herdada da qualificação: burst 720 s, rampup **780 s**, shift 960 s. Os roteiros k6 acabam antes: 618, **560** e 910 s. E o script exportava ~15 s depois do fim do k6. Ou seja, no rampup ele pedia ao Prometheus **3 minutos que ainda não tinham acontecido**.
+
+O Prometheus não recusa. Para o "futuro", ele devolve:
+- **vazio**, em latência, CPU e req/s;
+- o **último valor repetido**, por até 5 min, em memória, alertas e réplicas.
+
+É como uma foto da última cena colada várias vezes no fim do filme.
+
+| Cenário | Pontos-fantasma | Alertas repetidos com valor 1 (10 execuções) |
+|---|---|---|
+| burst | ~12 por execução (9%) | nenhum |
+| rampup | ~36 por execução (**23%**) | IF 109, AE 144, LOF 36, LSTM 36 |
+| shift | 2 por execução (1%) | 12–20 por detector |
+
+A qualificação tem o **mesmo rabo**, e por isso a Fase 1 fica como foi: igual à qualificação, sem mexer em nenhum número oficial.
+
+**Isso muda a escolha do B? Não.** Refiz a conta (primeiro reproduzindo exatamente os F1 oficiais) e tirei os pontos-fantasma:
+
+| | F1 online médio, oficial | sem os fantasmas |
+|---|---|---|
+| LSTM | 0,476 | 0,481 |
+| IF | 0,464 | 0,476 |
+
+O LSTM continua em 1º. O IF continua fora do empate pela diferença significativa no burst (que não tem fantasmas), e o desempate por MTTD não depende do rabo. Mas a folga fica pequena (0,005): mais um motivo para dizer, com todas as letras, que o IF foi melhor no burst.
+
+**Na Fase 3:** o script agora **espera o fim da janela** antes de exportar, para o custo (`pod_seconds`) só ter réplicas medidas (decisão 16). Custa ~2,7 h a mais.
 
 ---
 
@@ -248,7 +277,9 @@ Ao lado, vai o **teste visual**: se os intervalos dos dois modos não se sobrep�
 - **14, drift.** Mantém o desenho: cada repetição roda os 9 pares (modo × cenário) em ordem sorteada, num bloco de ~3,5 h, então o drift cai igual nos três modos. Em cada execução, registra a lentidão do **aquecimento** (`warmup_p95_ms`, sempre no modo A, antes do tratamento). **Antes** de olhar o tempo de reação, mostra que essa lentidão ficou equilibrada entre A, B e C. Não exclui nem refaz execuções lentas.
 - **15, shift.** Mantém o shift. O tempo de reação conta só os picos em que o HPA precisou escalar, e ao lado vão os picos sem reação e as réplicas no início.
 
-Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14 e 15. Falta confirmar com o orientador.
+- **16, pontos-fantasma.** Na Fase 3, o script espera o fim da janela medida antes de exportar. A Fase 1 fica igual à qualificação.
+
+Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14, 15 e 16. Falta confirmar com o orientador.
 
 ---
 
@@ -259,7 +290,7 @@ Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14 e 15. Fal
 3. **Diagnosticar o drift, só olhando,** antes de o Prometheus apagar a Fase 1 (~05/nov):
    - de dia, na VPS: `uptime`, `top`, `docker stats`;
    - no Grafana: throttling da app nas horas da Fase 1.
-4. `make hpa-mode HPA_MODE=B && make phase2-check`, depois `make hpa-experiment` (~32 h).
+4. `make hpa-mode HPA_MODE=B && make phase2-check`, depois `make hpa-experiment` (~35 h).
 
 ---
 

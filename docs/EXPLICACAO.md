@@ -180,7 +180,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 
 **Volume:**
 - **Fase 1:** 30 execuções, 36 condições (6 detectores × 2 formas × 3 cargas), cerca de 11 h.
-- **Fase 3:** 90 execuções, cerca de 32 h.
+- **Fase 3:** 90 execuções, cerca de 35 h.
 - **Qualificação, para comparar:** era a mesma lógica com N = 3, só offline e 3 detectores.
 
 ---
@@ -207,6 +207,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 | Partida a frio fora do escopo | o detector é avaliado em regime (depois do aquecimento) |
 | A VPS ficou mais lenta ao longo do dia (achado da Fase 1) | na Fase 1, os 6 viram a mesma execução, e o teste pareado cancela o efeito. Na Fase 3, cada repetição roda A, B e C misturados em ordem sorteada, e a lentidão do aquecimento (sempre no modo A) é medida para mostrar que ficou equilibrada (decisão 14) |
 | No rampup e no shift, os detectores alarmam antes da 1ª anomalia (achado da Fase 1) | o roteiro sobe a carga na parte que o gabarito chama de normal; vale igual para todos os detectores, e o gabarito da qualificação não muda ([FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5) |
+| O fim de cada CSV da Fase 1 tem pontos que repetem o último valor (achado da Fase 1) | é igual na qualificação; sem esses pontos, o LSTM continua escolhido. Na Fase 3, o script espera o fim da janela antes de exportar (decisão 16) |
 | O shift já começa com 3–7 pods (achado da Fase 1) | vale igual para A, B e C. O tempo de reação conta só os picos em que o HPA precisou escalar, e os outros são mostrados ao lado (decisão 15) |
 
 ---
@@ -228,10 +229,10 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 **Falta:**
 1. Backup dos resultados da Fase 1 fora da VPS; registrar os resultados; fixar o detector do B, que a regra escolhe.
 2. Diagnosticar de onde vem a lentidão do dia, só olhando (o modo D não será usado: a Fase 3 compara só A, B e C).
-3. **Rodar a Fase 3** (~32 h), analisar e escrever.
+3. **Rodar a Fase 3** (~35 h), analisar e escrever.
 
 ```
-Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão → Fase 3 (~32 h) → análise e escrita
+Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão → Fase 3 (~35 h) → análise e escrita
 ```
 
 ---

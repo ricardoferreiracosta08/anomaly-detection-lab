@@ -14,7 +14,7 @@ Dissertação de mestrado PPGCC/UFMA, Ricardo F. Costa, orientador Prof. Dr. Má
 |---|---|---|
 | **1. Comparar detectores** | 6 detectores não supervisionados × 3 cargas k6 (burst, rampup, shift) × 10 repetições, **offline e online**; HPA fixo no modo A. Métrica: F1 (e precisão, recall, MTTD) | 30 execuções, ~11 h |
 | **2. Integrar** | detector online no cluster publica `anomaly_level`; o Prometheus Adapter o entrega ao HPA como métrica externa, sem modificar o Kubernetes | — |
-| **3. Avaliar o HPA** | modos **A** (CPU 50%), **B** (CPU 50% + anomalia do detector escolhido na Fase 1), **C** (CPU 35%, controle: escalar cedo sem detector), D opcional; × 3 cargas × 10 rep. Métrica principal pré-registrada: **tempo de reação**; também p95 e % acima do SLO (500 ms) nas anomalias, custo (pod·s), scale-ups falsos | 90 execuções, ~32 h |
+| **3. Avaliar o HPA** | modos **A** (CPU 50%), **B** (CPU 50% + anomalia do detector escolhido na Fase 1), **C** (CPU 35%, controle: escalar cedo sem detector), D opcional; × 3 cargas × 10 rep. Métrica principal pré-registrada: **tempo de reação**; também p95 e % acima do SLO (500 ms) nas anomalias, custo (pod·s), scale-ups falsos | 90 execuções, ~35 h |
 
 Comparações da Fase 3: **B × A** (o proativo é melhor?), **B × C** (é a detecção ou só mais pods?), **C × A** (escalar cedo basta?).
 
@@ -106,6 +106,7 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 |---|---|
 | 14 | drift ao longo do dia: manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`, sempre no modo A) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação; não excluir nem refazer execuções lentas |
 | 15 | shift começando escalado (3–7 réplicas): manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado |
+| 16 | janela exportada além do fim do k6 (pontos-fantasma com o último valor repetido): na Fase 3 o script espera o fim da janela antes de exportar; a Fase 1 fica igual à qualificação (sensibilidade: o LSTM segue escolhido) |
 
 ## 7. Pilotos
 
@@ -147,4 +148,4 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 5. **Antes da Fase 3:**
    - diagnosticar o drift, só observando (decisão 14): consumo da VPS de dia e throttling no Grafana, antes de o Prometheus apagar (7 dias);
    - `make hpa-mode HPA_MODE=B && make phase2-check`;
-   - `make hpa-experiment` (~32 h).
+   - `make hpa-experiment` (~35 h).

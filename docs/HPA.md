@@ -9,7 +9,7 @@
 
 ```bash
 make hpa-mode HPA_MODE=B && make phase2-check   # B recebe a métrica de anomalia?
-make hpa-experiment                              # Fase 3 completa (≈ 32 h com REPS=10, aquecimento incluído)
+make hpa-experiment                              # Fase 3 completa (≈ 35 h com REPS=10, aquecimento e espera do fim da janela incluídos)
 less results/stats/phase3/relatorio.md           # resultado
 ```
 
