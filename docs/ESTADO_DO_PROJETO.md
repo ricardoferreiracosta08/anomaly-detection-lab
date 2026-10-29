@@ -139,7 +139,7 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 
 1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (19 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
-3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
+3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,476; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
 4. **Entre as fases:**
    - backup de `results/` e `datasets/` fora da VPS;
    - registrar os resultados da Fase 1 e fixar `HPA_B_DETECTOR` e `DETECTOR_ALGOS` da Fase 3 (só o detector do B, pela regra);

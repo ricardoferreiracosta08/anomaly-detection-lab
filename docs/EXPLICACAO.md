@@ -1,6 +1,6 @@
 # O projeto explicado (para conversar sobre ele)
 
-> **Explicação didática.** Serve para você conseguir explicar cada parte com as suas palavras, na reunião e na banca. Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e [PILOTOS.md](PILOTOS.md) (pilotos). O mapa técnico é o [ESTADO_DO_PROJETO.md](ESTADO_DO_PROJETO.md).
+> **Explicação didática.** Serve para você conseguir explicar cada parte com as suas palavras, na reunião e na banca. O resultado da Fase 1 e a estatística passo a passo estão em [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e [PILOTOS.md](PILOTOS.md) (pilotos). O mapa técnico é o [ESTADO_DO_PROJETO.md](ESTADO_DO_PROJETO.md).
 
 ---
 
@@ -206,6 +206,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 | O detector usa CPU | foi medido: ~0,03 de núcleo, igual nos três modos |
 | Partida a frio fora do escopo | o detector é avaliado em regime (depois do aquecimento) |
 | A VPS ficou mais lenta ao longo do dia (achado da Fase 1) | na Fase 1, os 6 viram a mesma execução, e o teste pareado cancela o efeito. Na Fase 3, cada repetição roda A, B e C misturados em ordem sorteada, e a lentidão do aquecimento (sempre no modo A) é medida para mostrar que ficou equilibrada (decisão 14) |
+| No rampup e no shift, os detectores alarmam antes da 1ª anomalia (achado da Fase 1) | o roteiro sobe a carga na parte que o gabarito chama de normal; vale igual para todos os detectores, e o gabarito da qualificação não muda ([FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5) |
 | O shift já começa com 3–7 pods (achado da Fase 1) | vale igual para A, B e C. O tempo de reação conta só os picos em que o HPA precisou escalar, e os outros são mostrados ao lado (decisão 15) |
 
 ---

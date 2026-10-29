@@ -179,7 +179,8 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 
 **Acrescentadas em 29/out/2026, depois da Fase 1** (achados de ambiente; tratamento nos itens 14 e 15):
 - **drift de desempenho ao longo do dia:** com a mesma carga e a app reiniciada, a latência da fase normal subiu de 2 a 5 vezes entre a madrugada e o meio-dia (item 14);
-- **shift fora da condição inicial:** nas 10 execuções do shift, o HPA já tinha escalado no aquecimento (3 a 7 réplicas ao fim dele, em vez de 2) (item 15).
+- **shift fora da condição inicial:** nas 10 execuções do shift, o HPA já tinha escalado no aquecimento (3 a 7 réplicas ao fim dele, em vez de 2) (item 15);
+- **alertas na "fase normal" que sobe:** no rampup e no shift, o roteiro aumenta a carga antes da 1ª anomalia do gabarito. O rampup vai de 10 para 40 e depois 65 usuários ("degraus 1 e 2"), e o shift de 30 para 50. Os detectores online alarmam em 57–99% desses pontos (exceto o EWMA), contra 5–19% no burst, cujo roteiro fica no nível do aquecimento. Isso baixa a precisão online nesses cenários, igual para todos os detectores. Na Fase 3, o B pode escalar antes da 1ª anomalia (`false_scaleups`). Gabarito, roteiros e aquecimento não mudam. Os pilotos 3 e 4, que validaram "alertas iniciais perto de 0%", foram só com burst. Detalhes: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5.
 
 ### 10. Forma do IC
 

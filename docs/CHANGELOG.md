@@ -102,6 +102,8 @@
   - **15, shift:** o shift começou com 3–7 réplicas. Ele é mantido, e o tempo de reação conta só as janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado. É o que o `hpa_metrics.py` já calcula.
 - `bin/experiment.sh`: nova coluna `warmup_p95_ms` no `results/warmup_log.csv`. É o p95 da latência nos últimos 4 min do aquecimento, lido antes do modo, e aparece também no log do fim do aquecimento. Os itens por pod e o p95 saem numa só chamada ao Prometheus, para caber na margem antes da troca. O `warmup_log.csv` no formato anterior (o da Fase 1) é guardado à parte como `warmup_log.antigo.<data>.csv` na 1ª execução seguinte.
 - Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `HPA.md`, `DETECTOR_ONLINE.md` e regras do projeto.
+- **Novo `docs/FASE1_EXPLICADA.md`:** a Fase 1 definitiva explicada de forma didática (receita, placar, regra do B, offline × online, achados de ambiente, estatística passo a passo com o exemplo real LSTM × IF no burst, o que falta). As figuras ficam em `docs/figs/fase1/`, geradas dos CSVs reais.
+- Item 9 (ameaças): novo achado. No rampup e no shift, o roteiro sobe a carga antes da 1ª anomalia do gabarito, e os detectores online alarmam em 57–99% desses pontos (5–19% no burst). Os pilotos que validaram "alertas iniciais perto de 0%" eram só de burst.
 
 ## Novo (29/out): modo D não usado
 
