@@ -6,7 +6,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 
 ## TL;DR — estado
 
-**Todas as decisões estão fechadas** (alinhadas com o orientador; registro em 28/out/2026, antes da Fase 1). O modo D (item 5) foi fechado em 29/out/2026: não será usado.
+**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14 e 15 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). Falta confirmá-las com o orientador.
 
 | # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
@@ -23,6 +23,8 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 | 11 | Acomodação inicial da avaliação (burn-in) | Fase 1 | 60 s fora da pontuação (`EVAL_SKIP_SECONDS`) | **fechada** (implementada) |
 | 12 | Janela do detector online | Fases 1 e 3 | 5 min, valor da qualificação; sensibilidade só por replay | **fechada** (implementada) |
 | 13 | ANOVA antes dos pares (slide 65) | Fases 1 e 3 | dispensada, porque as comparações são planejadas | **fechada** |
+| 14 | Drift de desempenho ao longo do dia | Fase 3 | manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação | **fechada** em 29/out/2026 (implementada) |
+| 15 | Shift já começa escalado | Fase 3 | manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado | **fechada** em 29/out/2026 (já implementada) |
 
 ---
 
@@ -175,6 +177,10 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 
 **Decisão — fechada em 28/out/2026, alinhada com o orientador:** a lista acima basta para o escopo do mestrado e entra na dissertação.
 
+**Acrescentadas em 29/out/2026, depois da Fase 1** (achados de ambiente; tratamento nos itens 14 e 15):
+- **drift de desempenho ao longo do dia:** com a mesma carga e a app reiniciada, a latência da fase normal subiu de 2 a 5 vezes entre a madrugada e o meio-dia (item 14);
+- **shift fora da condição inicial:** nas 10 execuções do shift, o HPA já tinha escalado no aquecimento (3 a 7 réplicas ao fim dele, em vez de 2) (item 15).
+
 ### 10. Forma do IC
 
 **Situação.** O `stats_tlc.py` usa Ȳ ± t·S/√N. Um exemplo do material usa a forma t·S, que está guardada na coluna `H_tDP` para comparação.
@@ -220,6 +226,57 @@ Hipóteses descartadas: réplicas da execução anterior descendo no aquecimento
 **Decisão — fechada em 28/out/2026, alinhada com o orientador.** Dispensar a ANOVA: as comparações são **planejadas e definidas antes** (decisão 2: 11 por cenário na Fase 1; B×A, B×C e C×A na Fase 3), cada uma respondendo a uma pergunta da pesquisa.
 
 **Fechar antes de:** Fase 1.
+
+### 14. Drift de desempenho ao longo do dia
+
+**Situação.** A Fase 1 rodou em 29/out/2026, das 00h24 às 13h (Brasília). Em todos os cenários, a mesma carga ficou mais lenta com o passar do dia. A app é reiniciada a cada execução, então o estado da aplicação não explica a piora.
+
+| Medida | Madrugada | Fim da manhã (depois das ~10h) |
+|---|---|---|
+| p95 na fase normal, burst | ~5 ms | 23–26 ms |
+| p95 na fase normal, rampup | ~21 ms | 84–117 ms |
+| p95 na fase normal, shift | ~16 ms | 72–80 ms |
+| vazão do k6, burst | 54,7 req/s | 31,5–32,3 req/s |
+
+O p95 é a mediana dos pontos da fase normal, pelo Prometheus. Gráfico: `01_drift_por_hora.png`, gerado a partir dos dados da Fase 1.
+
+A piora não foi contínua: houve um episódio isolado por volta das 05h30–06h (burst_run5 com 21,6 ms e rampup_run5 com 50 ms), que voltou ao normal às 07h. A subida forte começou depois das ~09h30.
+
+Hipóteses ainda não verificadas: carga diurna dos outros serviços da VPS; throttling da app no limite de 300m; algo crescendo no cluster.
+
+**Efeito.**
+- **Fase 1:** nenhum. Os 6 detectores viram a mesma execução, e o teste pareado cancela o que é da execução.
+- **Fase 3:** A, B e C rodam em execuções diferentes, e o teste não é pareado. Um modo que caísse mais nas horas lentas pareceria pior só por isso. O desenho já reduz esse risco: cada repetição roda os 9 pares (modo × cenário) em **ordem sorteada**, num bloco de ~3,5 h ([experiment.sh](../bin/experiment.sh)). Assim, o drift tende a cair igual nos três modos, e o efeito que sobra é aumentar a variação (ICs mais largos), não favorecer um modo.
+
+**Decisão — Ricardo, 29/out/2026, antes da Fase 3.**
+1. **Manter o desenho**: blocos por repetição, com ordem sorteada.
+2. **Medir o ambiente em cada execução, antes do tratamento:**
+   - a coluna `warmup_p95_ms` do `results/warmup_log.csv` guarda o p95 da latência nos últimos 4 min do aquecimento, lido antes da descida;
+   - o aquecimento roda sempre no modo A, então essa medida não depende do modo;
+   - o p95 do resumo do k6 **não serve** para isso, porque já sofre o efeito do modo.
+3. **Mostrar o equilíbrio antes de olhar o tempo de reação:**
+   - por cenário, IC da média do `warmup_p95_ms` em A, B e C, com o horário de cada execução;
+   - se os ICs não se sobrepuserem, o desequilíbrio é relatado como limitação, sem correção não planejada.
+4. **Não excluir nem refazer execuções** por estarem lentas, e não mudar o limite de CPU da app: isso mudaria o HPA e quebraria a comparação com a Fase 1.
+5. **Diagnosticar a causa só observando:** consumo da VPS ao longo do dia e throttling no Grafana. O objetivo é explicar a causa na dissertação, sem mexer em outros serviços da VPS.
+6. **Declarar** como ameaça à validade (item 9).
+
+**Fechar antes de:** Fase 3.
+
+### 15. Shift já começa escalado (Fase 3)
+
+**Situação.** Nas 10 execuções do shift na Fase 1, o HPA escalou durante o aquecimento: 3 a 7 réplicas ao fim dele, em vez de 2 (`at_min=0` no `warmup_log.csv`). O motivo é que a carga normal do shift (30 VUs) passa de 50% de CPU em 2 pods. O número de réplicas cresceu ao longo do dia, junto com o drift (item 14). Burst e rampup começaram com 2 réplicas; a única exceção foi uma execução do rampup, com 3. Na Fase 3, o aquecimento é sempre no modo A, então isso vale igual para A, B e C. Consequência: num pico do shift, o HPA pode já ter réplicas suficientes e não precisar escalar, e aí o tempo de reação fica sem valor.
+
+**Decisão — Ricardo, 29/out/2026, antes da Fase 3.**
+- Manter o shift como está: o roteiro k6 e o gabarito não mudam.
+- O **tempo de reação** é a média só das janelas com reação, isto é, com aumento das réplicas desejadas até `REACTION_GRACE_SECONDS` (60 s) depois do fim da janela. É o que o [hpa_metrics.py](../scripts/hpa_metrics.py) já calcula.
+- Ao lado do tempo de reação, por modo, reportar:
+  - as janelas sem reação (`windows_no_reaction` / `n_windows`);
+  - as réplicas ao fim do aquecimento (`available` no `warmup_log.csv`).
+- O shift é lido **à parte** de burst e rampup, como já é feito por cenário; o texto deixa claro que ele parte de outra condição inicial.
+
+**Fechar antes de:** Fase 3.
+
 ---
 
 ## Já decididas

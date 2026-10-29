@@ -205,6 +205,8 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 | VPS compartilhada | os núcleos do k6 são separados, a ordem é sorteada e o ruído fica registrado |
 | O detector usa CPU | foi medido: ~0,03 de núcleo, igual nos três modos |
 | Partida a frio fora do escopo | o detector é avaliado em regime (depois do aquecimento) |
+| A VPS ficou mais lenta ao longo do dia (achado da Fase 1) | na Fase 1, os 6 viram a mesma execução, e o teste pareado cancela o efeito. Na Fase 3, cada repetição roda A, B e C misturados em ordem sorteada, e a lentidão do aquecimento (sempre no modo A) é medida para mostrar que ficou equilibrada (decisão 14) |
+| O shift já começa com 3–7 pods (achado da Fase 1) | vale igual para A, B e C. O tempo de reação conta só os picos em que o HPA precisou escalar, e os outros são mostrados ao lado (decisão 15) |
 
 ---
 
@@ -218,14 +220,17 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 - as decisões de método fechadas com o orientador (28/out/2026);
 - a documentação completa.
 
+**Feito em 29/out/2026:**
+- a Fase 1 rodou: 30 execuções, das 00h24 às 13h;
+- as decisões 14 (drift) e 15 (shift) foram tomadas antes da Fase 3.
+
 **Falta:**
-1. Atualizar a VPS (`git pull`, `make build-analysis`, `make selftest`).
-2. **Rodar a Fase 1** (~11 h). A regra escolhe o detector do B.
-3. Antes da Fase 3: checar os "soluços" de um pod (o modo D não será usado: a Fase 3 compara só A, B e C).
-4. **Rodar a Fase 3** (~32 h), analisar e escrever.
+1. Backup dos resultados da Fase 1 fora da VPS; registrar os resultados; fixar o detector do B, que a regra escolhe.
+2. Diagnosticar de onde vem a lentidão do dia, só olhando (o modo D não será usado: a Fase 3 compara só A, B e C).
+3. **Rodar a Fase 3** (~32 h), analisar e escrever.
 
 ```
-Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 (~11 h) → campeão → Fase 3 (~32 h) → análise e escrita
+Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão → Fase 3 (~32 h) → análise e escrita
 ```
 
 ---

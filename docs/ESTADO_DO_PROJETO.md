@@ -98,7 +98,14 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 | 8 | SLO 500 ms, com sensibilidade a 300 ms e 1 s |
 | 10 | forma do IC: t·S/√N |
 | 13 | ANOVA dispensada, porque as comparações são planejadas |
-| 9 | ameaças à validade declaradas: cluster de 1 nó, carga sintética, app de teste, VPS compartilhada, partida a frio fora do escopo, detector disputando CPU com a app, ruído de latência por pod |
+| 9 | ameaças à validade declaradas: cluster de 1 nó, carga sintética, app de teste, VPS compartilhada, partida a frio fora do escopo, detector disputando CPU com a app, ruído de latência por pod; em 29/out: drift ao longo do dia e shift começando escalado |
+
+**Fechadas em 29/out/2026, depois da Fase 1 e antes da Fase 3 (Ricardo; só dados de ambiente; falta confirmar com o orientador):**
+
+| # | Decisão |
+|---|---|
+| 14 | drift ao longo do dia: manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`, sempre no modo A) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação; não excluir nem refazer execuções lentas |
+| 15 | shift começando escalado (3–7 réplicas): manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado |
 
 ## 7. Pilotos
 
@@ -132,6 +139,12 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 
 1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (19 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
-3. **Fase 1:** checklist do runbook; `make clean`; `make experiment` (~11 h).
-4. **Entre as fases:** o relatório da Fase 1 aplica a regra do B; fixar `HPA_B_DETECTOR` e `DETECTOR_ALGOS` da Fase 3 (só o detector do B).
-5. **Antes da Fase 3:** verificar a causa do 2º tipo de oscilação (throttling?); `make hpa-mode HPA_MODE=B && make phase2-check`; `make hpa-experiment` (~32 h).
+3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
+4. **Entre as fases:**
+   - backup de `results/` e `datasets/` fora da VPS;
+   - registrar os resultados da Fase 1 e fixar `HPA_B_DETECTOR` e `DETECTOR_ALGOS` da Fase 3 (só o detector do B, pela regra);
+   - na VPS: `git pull` (traz a coluna `warmup_p95_ms`).
+5. **Antes da Fase 3:**
+   - diagnosticar o drift, só observando (decisão 14): consumo da VPS de dia e throttling no Grafana, antes de o Prometheus apagar (7 dias);
+   - `make hpa-mode HPA_MODE=B && make phase2-check`;
+   - `make hpa-experiment` (~32 h).

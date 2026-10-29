@@ -95,6 +95,14 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (29/out): drift e shift decididos antes da Fase 3
+
+- `docs/DECISOES_METODO.md`, itens 14 e 15, e item 9 (ameaças), decididos depois da Fase 1, só com dados de ambiente:
+  - **14, drift:** na Fase 1 a latência da fase normal subiu de 2 a 5 vezes da madrugada ao meio-dia. Fica mantido o desenho em blocos sorteados; o p95 do aquecimento é registrado e o equilíbrio entre A, B e C é mostrado antes do tempo de reação.
+  - **15, shift:** o shift começou com 3–7 réplicas. Ele é mantido, e o tempo de reação conta só as janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado. É o que o `hpa_metrics.py` já calcula.
+- `bin/experiment.sh`: nova coluna `warmup_p95_ms` no `results/warmup_log.csv`. É o p95 da latência nos últimos 4 min do aquecimento, lido antes do modo, e aparece também no log do fim do aquecimento. Os itens por pod e o p95 saem numa só chamada ao Prometheus, para caber na margem antes da troca. O `warmup_log.csv` no formato anterior (o da Fase 1) é guardado à parte como `warmup_log.antigo.<data>.csv` na 1ª execução seguinte.
+- Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `HPA.md`, `DETECTOR_ONLINE.md` e regras do projeto.
+
 ## Novo (29/out): modo D não usado
 
 - `docs/DECISOES_METODO.md`, item 5: modo D fechado em 29/out/2026 (Ricardo), **não usado**. A Fase 3 roda A, B e C (`HPA_MODES=A,B,C`, o padrão; nada muda no código). Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `HPA.md`, regras do projeto.

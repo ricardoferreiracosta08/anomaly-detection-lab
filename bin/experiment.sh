@@ -134,13 +134,27 @@ restart_app() {
         || log "⚠ o rollout da app não terminou em 300 s; seguindo para a espera pelas réplicas"
 }
 
-# ── itens por pod da app (app_items_total), pelo Prometheus: "112;108" ────
-items_per_pod() {
+# ── itens por pod e p95 do aquecimento, pelo Prometheus: "112;108 23.4" ──
+# Itens = app_items_total por pod. p95 = latência nos últimos 4 min do aquecimento (ms),
+# lida antes da descida e antes do modo: mede só o ambiente (drift), não o tratamento;
+# serve para conferir o equilíbrio entre A, B e C na Fase 3 (decisão 14).
+# Uma chamada só: as conferências cabem nos CHECK_MARGIN s antes da troca.
+items_and_p95() {
     analysis -c "
 import requests
-r = requests.get('$PROM_URL/api/v1/query', params={'query': 'app_items_total{namespace=\"$NS\"}'}, timeout=5).json()
-print(';'.join(str(int(float(x['value'][1]))) for x in sorted(r['data']['result'], key=lambda x: x['metric'].get('pod', ''))))
-" 2>/dev/null || echo "?"
+def q(expr):
+    return requests.get('$PROM_URL/api/v1/query', params={'query': expr}, timeout=5).json()['data']['result']
+try:
+    r = q('app_items_total{namespace=\"$NS\"}')
+    items = ';'.join(str(int(float(x['value'][1]))) for x in sorted(r, key=lambda x: x['metric'].get('pod', '')))
+except Exception:
+    items = '?'
+try:
+    p95 = '%.1f' % (1000 * float(q('histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"$NS\"}[4m])) by (le))')[0]['value'][1]))
+except Exception:
+    p95 = '?'
+print(items or '?', p95)
+" 2>/dev/null || echo "? ?"
 }
 
 # ── aquecimento: carga normal constante (HPA no modo A), com sobreposição na troca ─
@@ -167,7 +181,7 @@ warmup_start() {   # warmup_start <cenario>
 }
 
 warmup_handoff() {   # warmup_handoff <cenario> <key> <modo|->
-    local sc=$1 key=$2 mode=$3 vus=${WARMUP_VUS[$1]} ok lvl items handoff now
+    local sc=$1 key=$2 mode=$3 vus=${WARMUP_VUS[$1]} ok lvl items p95 handoff now
     if [ -n "$WARM_PID" ]; then
         handoff=$(( WARM_T0 + WARMUP_SECONDS - RAMP_DOWN ))
         now=$(date +%s)
@@ -175,19 +189,19 @@ warmup_handoff() {   # warmup_handoff <cenario> <key> <modo|->
     fi
     read_replicas
     lvl=$(level_b)
-    items=$(items_per_pod)
+    read -r items p95 <<< "$(items_and_p95)"
     if [[ "$cur" == "$min" && "$des" == "$min" ]]; then
-        ok=1; log "✓ fim do aquecimento: réplicas no mínimo ($cur); anomaly_level ${HPA_B_DETECTOR:-IF} = $lvl; itens por pod = $items"
+        ok=1; log "✓ fim do aquecimento: réplicas no mínimo ($cur); anomaly_level ${HPA_B_DETECTOR:-IF} = $lvl; itens por pod = $items; p95 = ${p95} ms"
     else
         ok=0; log "⚠ o HPA escalou durante o aquecimento (atual=$cur desejado=$des mínimo=$min): $key começa fora da condição inicial"
     fi
     # anomaly_level do B ≥ 0,5 aqui = o B escalaria assim que aplicado; itens iguais = mesmo estado da app
-    local header="phase,key,scenario,vus,seconds,end,available,desired,min,at_min,b_detector,anomaly_level_b,items_per_pod"
+    local header="phase,key,scenario,vus,seconds,end,available,desired,min,at_min,b_detector,anomaly_level_b,items_per_pod,warmup_p95_ms"
     if [ -f results/warmup_log.csv ] && [ "$(head -1 results/warmup_log.csv)" != "$header" ]; then
         mv results/warmup_log.csv "results/warmup_log.antigo.$(date +%s).csv"   # formato anterior: guarda à parte
     fi
     [ -f results/warmup_log.csv ] || echo "$header" > results/warmup_log.csv
-    echo "$PHASE,$key,$sc,$vus,$WARMUP_SECONDS,$(date +%s),$cur,$des,$min,$ok,${HPA_B_DETECTOR:-IF},$lvl,$items" >> results/warmup_log.csv
+    echo "$PHASE,$key,$sc,$vus,$WARMUP_SECONDS,$(date +%s),$cur,$des,$min,$ok,${HPA_B_DETECTOR:-IF},$lvl,$items,$p95" >> results/warmup_log.csv
     # o modo da execução só entra agora (Fase 3); no A nada muda
     if [ "$mode" != "-" ] && [ "$mode" != "A" ]; then apply_mode "$mode"; fi
     if [ -n "$WARM_PID" ]; then
