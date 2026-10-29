@@ -221,7 +221,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 **Falta:**
 1. Atualizar a VPS (`git pull`, `make build-analysis`, `make selftest`).
 2. **Rodar a Fase 1** (~11 h). A regra escolhe o detector do B.
-3. Antes da Fase 3: decidir o modo D e checar os "soluços" de um pod.
+3. Antes da Fase 3: checar os "soluços" de um pod (o modo D não será usado: a Fase 3 compara só A, B e C).
 4. **Rodar a Fase 3** (~32 h), analisar e escrever.
 
 ```

@@ -72,7 +72,7 @@ O valor 35% é um ponto de partida. O ideal é calibrar o C para gastar **mais o
 
 ### O modo D
 
-Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro detector, por padrão o EWMA (univariado, só latência) contra o do B (multivariado). Responde: "o tipo de detector importa para o HPA?". Comparação gerada: D × B.
+**Não usado na dissertação** (decisão de 29/out/2026, [DECISOES_METODO.md](DECISOES_METODO.md), item 5): a Fase 3 roda só A, B e C. O código continua disponível. Opcional (só roda se `D` estiver em `HPA_MODES`). Mesma regra do B com outro detector, por padrão o EWMA (univariado, só latência) contra o do B (multivariado). Responde: "o tipo de detector importa para o HPA?". Comparação gerada: D × B.
 
 ## 3. Escolha do detector do modo B (pré-registro)
 

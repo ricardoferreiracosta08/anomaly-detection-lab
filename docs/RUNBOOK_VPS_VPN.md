@@ -91,6 +91,10 @@ Marque cada item **antes** do `make experiment` definitivo. Nenhum dado de pilot
 **Antes da Fase 3 (além dos itens acima, exceto o `make clean`, que apagaria a Fase 1):**
 
 - [ ] **`HPA_B_DETECTOR` escolhido pela Fase 1 e registrado** (no `.env`, no `docs/CHANGELOG.md` e no regras do projeto, com o motivo). Não trocar depois ([HPA.md](HPA.md), seção 3).
+- [ ] **Resultados da Fase 1 copiados para fora da VPS** (`scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results results_fase1` no notebook). O `hpa-experiment` escreve em `results/` também.
+- [ ] **`DETECTOR_ALGOS=<detector do B>`** no `.env` (só ele; o modo D não é usado) e `make detector-deploy`; `make detector-logs` mostra só esse algoritmo.
+- [ ] **`HPA_MODES=A,B,C`** no `.env`.
+- [ ] **Oscilação de latência num pod (piloto 4) verificada:** throttling de CPU da app (ver [PILOTOS.md](PILOTOS.md), piloto 4). Qualquer mudança decorrente (por exemplo, o limite de CPU da app) é registrada em `DECISOES_METODO.md` **antes** da Fase 3 e vale igual para A, B e C.
 - [ ] **`make hpa-mode HPA_MODE=B && make phase2-check` ok:** `anomaly_level` aparece no Adapter e na seção Metrics do HPA.
 
 ---

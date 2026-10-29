@@ -6,7 +6,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 
 ## TL;DR — estado
 
-**Todas as decisões que afetam a Fase 1 estão fechadas** (alinhadas com o orientador; registro em 28/out/2026, antes da Fase 1). Em aberto, só o **modo D** (item 5), a decidir antes da Fase 3.
+**Todas as decisões estão fechadas** (alinhadas com o orientador; registro em 28/out/2026, antes da Fase 1). O modo D (item 5) foi fechado em 29/out/2026: não será usado.
 
 | # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
@@ -14,7 +14,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 | 2 | Quais comparações fazer | Fase 1 | 6 offline × online + 5 vencedor da regra do B × outros online, por cenário | **fechada** (implementada) |
 | 3 | LSTM no rol e como candidato ao B | Fases 1 e 3 | manter; piloto 4: ciclo p95 0,48 s | **fechada** (implementada) |
 | 4 | Estado inicial da aplicação | Fases 1 e 3 | reiniciar com 100 itens | **fechada** (implementada) |
-| 5 | Detectores no cluster | Fases 1 e 3 | Fase 1 com os 6 num pod; Fase 3 só o do B, **igual nos modos A, B e C** | **fechada**; modo D **em aberto** (antes da Fase 3) |
+| 5 | Detectores no cluster | Fases 1 e 3 | Fase 1 com os 6 num pod; Fase 3 só o do B, **igual nos modos A, B e C** | **fechada**; modo D: **não usado** (29/out/2026) |
 | 6 | Tolerância de atraso na avaliação | Fase 1 | sem (principal) e com **30 s** (secundário), offline e online | **fechada** (implementada) |
 | 7 | Detector do modo B e métrica principal | Fase 3 | regra registrada em 16/out/2026 (ver item 7); métrica: tempo de reação | **fechada** (implementada) |
 | 8 | Valor do SLO | Fase 3 | 500 ms + sensibilidade a 300 ms e 1 s | **fechada** |
@@ -114,6 +114,8 @@ Na Fase 3 (A × B × C), cada modo roda em execuções diferentes: lá o teste �
 **Adotada em 16/out/2026 (Ricardo); fechada em 28/out/2026, alinhada com o orientador.** Na Fase 3, `DETECTOR_ALGOS` passa a ter só o detector do B (e o do D, se usado), fixado junto com a escolha do B.
 
 **Esclarecido em 18/out/2026:** na Fase 3 o detector roda **igual nos modos A, B e C**, não só no B. O pod `online-detector` é um só, implantado com `DETECTOR_ALGOS` fixo, e fica de pé o tempo todo; o modo do HPA só muda quem **lê** o `anomaly_level`. Assim o custo de CPU do detector é o mesmo nos três modos, e a comparação é justa. **Modo D (2º detector) — decidir antes da Fase 3:** ou o D sai (`HPA_MODES=A,B,C`, o padrão), ou os dois detectores (o do B e o do D) rodam em **todos** os modos, e o custo é igual de novo. Proposta: D sai.
+
+**Modo D: fechado em 29/out/2026 (Ricardo): não será usado.** A Fase 3 roda só A, B e C (`HPA_MODES=A,B,C`, o padrão), e o pod do detector na Fase 3 roda só o detector do B.
 
 ### 6. Tolerância de atraso na avaliação do online (Fase 1)
 
