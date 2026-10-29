@@ -95,6 +95,20 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (29/out): avaliação só até o fim do k6 (decisão 17)
+
+- `docs/DECISOES_METODO.md`, item 17, registrado **antes** de gerar os números:
+  - na Fase 1, o número principal é o corrigido, avaliado só até o fim do roteiro k6 + 15 s (burst 633, rampup 575, shift 925 s), com o "como rodou" ao lado;
+  - na Fase 3, os scale-ups falsos só contam até o fim do k6 + 60 s, e o custo vai até o fim da janela.
+- `scripts/export_metrics.py`: `K6_END_SECONDS` (fim de cada roteiro), separado do gabarito, que não muda.
+- `scripts/detectors.py`: `EVAL_END_MARGIN_SECONDS` (padrão 15; `off` = série inteira). As linhas depois do corte saem **antes** da imputação, então nem os detectores offline as veem. Nova coluna `eval_end_s`; opção `--eval-end-margin`.
+- `scripts/hpa_metrics.py`: `reaction_metrics(..., count_until=)`. Os scale-ups falsos contam só até o fim do k6 + `REACTION_GRACE_SECONDS`.
+- `scripts/stats_tlc.py`: o relatório da Fase 1 diz qual corte foi usado.
+- `make selftest`: `test_eval_end` e o caso novo em `test_hpa_metrics`. `test_eval_skip` passa a isolar a acomodação. Agora são 20 testes.
+- `Makefile` e `.env.example`: `EVAL_END_MARGIN_SECONDS=15`.
+- **Fase 1 corrigida**, gerada no notebook a partir do backup da VPS, em `fase1_corrigido/`. Antes, o "como rodou" foi reproduzido célula por célula: 360 linhas, ICs, testes t e o ranking. Resultado: LSTM 0,485 e IF 0,482; a regra do B continua dando LSTM; offline × online continua 14/2/2.
+- Atualizados `FASE1_EXPLICADA.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md` e regras do projeto.
+
 ## Novo (29/out): pontos-fantasma no fim do CSV (decisão 16)
 
 - **Causa:** a janela exportada (`DURATION`: 720/780/960 s, a da qualificação) passa do fim dos roteiros k6 (618/560/910 s). A exportação rodava ~15 s depois do fim do k6 e pedia pontos do futuro. O Prometheus os preenche repetindo o último valor dos gauges (memória, alertas online, réplicas) por até 5 min. No rampup são ~36 pontos por execução (23% do CSV). A qualificação tem o mesmo rabo.

@@ -49,22 +49,26 @@ Os 6 rodaram **juntos num pod só**, lendo as mesmas métricas no mesmo instante
 
 ### O placar ao vivo (online), média das 10 execuções
 
-| Posição | Detector | burst | rampup | shift | **Média** | MTTD | Janelas detectadas |
-|---|---|---|---|---|---|---|---|
-| 1 | **LSTM** | 0,46 | **0,51** | **0,46** | **0,476** | **11,6 s** | 99/100 |
-| 2 | IF | **0,53** | 0,47 | 0,39 | 0,464 | 20,9 s | 96/100 |
-| 3 | AE | 0,42 | 0,47 | 0,42 | 0,435 | 17,5 s | 99/100 |
-| 4 | DBSCAN | 0,42 | 0,44 | 0,35 | 0,401 | 21,4 s | 90/100 |
-| 5 | LOF | 0,30 | 0,43 | 0,35 | 0,358 | 20,6 s | 76/100 |
-| 6 | EWMA | 0,27 | 0,15 | 0,06 | 0,162 | 31,0 s | 26/100 |
+**Número principal = o corrigido** (decisão 17): avaliação só até o fim do k6 + 15 s, porque depois disso o CSV não foi medido (seção 6). O oficial "como rodou" vai na última coluna.
+
+| Posição | Detector | burst | rampup | shift | **Média** | MTTD | Janelas detectadas | Média "como rodou" |
+|---|---|---|---|---|---|---|---|---|
+| 1 | **LSTM** | 0,46 | **0,53** | **0,47** | **0,485** | **11,6 s** | 99/100 | 0,476 |
+| 2 | IF | **0,53** | 0,51 | 0,40 | 0,482 | 20,9 s | 96/100 | 0,464 |
+| 3 | AE | 0,42 | 0,52 | 0,43 | 0,458 | 17,5 s | 99/100 | 0,435 |
+| 4 | DBSCAN | 0,42 | 0,44 | 0,36 | 0,404 | 21,4 s | 90/100 | 0,401 |
+| 5 | LOF | 0,30 | 0,44 | 0,36 | 0,367 | 20,6 s | 76/100 | 0,358 |
+| 6 | EWMA | 0,27 | 0,15 | 0,06 | 0,162 | 31,0 s | 26/100 | 0,162 |
+
+A ordem é a mesma nos dois. O corte só mexe no rampup e no shift (o burst não tinha alertas repetidos), e o MTTD não muda.
 
 ### A regra do B, escrita em 16/out (antes dos dados)
 
-1. Maior média nos 3 cenários: **LSTM** (0,476).
+1. Maior média nos 3 cenários: **LSTM** (0,485; no "como rodou", 0,476).
 2. Empate é quem **não** tem diferença significativa para o 1º **em nenhum** cenário. Ninguém ficou nesse grupo: o IF difere no burst (melhor) e no shift (pior), e o AE difere no burst.
 3. Ciclo p95 < 2,5 s: ok.
 
-**Escolhido: LSTM.** Mesmo que o IF entrasse no empate, o critério seguinte (menor MTTD) também daria o LSTM: 11,6 s contra 20,9 s. A escolha é robusta.
+**Escolhido: LSTM.** Mesmo que o IF entrasse no empate, o critério seguinte (menor MTTD) também daria o LSTM: 11,6 s contra 20,9 s. A escolha é a mesma no corrigido e no "como rodou". Mas a folga entre o 1º e o 2º é pequena (0,003 no corrigido).
 
 **O que vai para o texto, sem esconder:** no burst o IF foi melhor que o LSTM, e com diferença significativa. O LSTM ganha no conjunto porque não cai no shift.
 
@@ -79,7 +83,7 @@ Os 6 rodaram **juntos num pod só**, lendo as mesmas métricas no mesmo instante
 
 ### Por que comparar
 
-1. **É o achado, e é o motivo mais forte.** Neste protocolo, o ranking offline **não previu** o online: no offline o melhor foi o EWMA (0,30) e o LSTM ficou no meio (3º de 6, com 0,18); ao vivo, o EWMA foi o último e o LSTM o primeiro. Quem escolhesse o detector só pela avaliação offline teria escolhido outro.
+1. **É o achado, e é o motivo mais forte.** Neste protocolo, o ranking offline **não previu** o online: no offline o melhor foi o EWMA (0,31) e o LSTM ficou em 4º de 6 (0,17); ao vivo, o EWMA foi o último e o LSTM o primeiro. Quem escolhesse o detector só pela avaliação offline teria escolhido outro.
 2. **Continuidade com a qualificação.** Ela foi toda offline. Sem o offline, a banca não vê o que mudou ao passar para o uso real.
 3. (Uso possível, não testado) a análise depois de um incidente, com o dia inteiro na mão.
 
@@ -100,8 +104,8 @@ O efeito aparece na média de precisão e recall:
 
 | | Precisão | Recall |
 |---|---|---|
-| IF, LOF, DBSCAN, AE, LSTM **offline** | 0,31–0,61 | **0,09–0,19** |
-| os mesmos **online** | 0,35–0,45 | **0,38–0,62** |
+| IF, LOF, DBSCAN, AE, LSTM **offline** | 0,44–0,62 | **0,08–0,16** |
+| os mesmos **online** | 0,36–0,48 | **0,38–0,62** |
 
 - **Offline:** as anomalias ocupam 19% (burst), 29% (rampup) e 51% (shift) dos pontos, mas o detector "tem cota" para marcar só ~10%. Quando alarma, costuma acertar (precisão razoável), mas deixa passar quase tudo (recall baixo).
 - **Online:** marca tudo que destoa. Pega bem mais anomalias (recall alto) e erra um pouco mais (ver a seção 5).
@@ -180,18 +184,34 @@ O Prometheus não recusa. Para o "futuro", ele devolve:
 | rampup | ~36 por execução (**23%**) | IF 109, AE 144, LOF 36, LSTM 36 |
 | shift | 2 por execução (1%) | 12–20 por detector |
 
-A qualificação tem o **mesmo rabo**, e por isso a Fase 1 fica como foi: igual à qualificação, sem mexer em nenhum número oficial.
+A qualificação tem o **mesmo rabo**.
 
-**Isso muda a escolha do B? Não.** Refiz a conta (primeiro reproduzindo exatamente os F1 oficiais) e tirei os pontos-fantasma:
+**Como foi corrigido sem rodar de novo (decisão 17).** O problema está no arquivo, não na execução, então o conserto é na **leitura**:
+- a avaliação usa só os pontos até o **fim do k6 + 15 s** (633, 575 e 925 s), o mesmo corte para os 6 detectores, offline e online;
+- os detectores offline também deixam de ver o rabo, porque ele não é dado;
+- o número que vem do **roteiro**, não dos resultados;
+- os CSVs ficam intactos, e `EVAL_END_MARGIN_SECONDS=off` reproduz o "como rodou".
 
-| | F1 online médio, oficial | sem os fantasmas |
+Antes de calcular o corrigido, a avaliação "como rodou" foi refeita e bateu **célula por célula** com a oficial (360 linhas, 0 diferenças). Assim, a diferença entre os dois vem só do corte.
+
+| F1 médio | "como rodou" | **corrigido (principal)** |
 |---|---|---|
-| LSTM | 0,476 | 0,481 |
-| IF | 0,464 | 0,476 |
+| LSTM online | 0,476 | **0,485** |
+| IF online | 0,464 | **0,482** |
+| AE online | 0,435 | **0,458** |
+| EWMA offline | 0,302 | **0,308** |
+| IF offline | 0,252 | **0,232** |
+| LOF offline | 0,156 | **0,208** |
 
-O LSTM continua em 1º. O IF continua fora do empate pela diferença significativa no burst (que não tem fantasmas), e o desempate por MTTD não depende do rabo. Mas a folga fica pequena (0,005): mais um motivo para dizer, com todas as letras, que o IF foi melhor no burst.
+**O que mudou e o que não mudou:**
+- **A escolha do B não muda:** o LSTM segue em 1º, e o IF segue fora do empate pela diferença significativa no burst (melhor) e no shift (pior).
+- **Offline × online não muda:** 14 de 18 a favor do online, 2 do offline (EWMA), 2 sem diferença.
+- **O offline se mexe mais**, como esperado, porque as linhas vazias viravam zeros no treino. O LOF offline sobe de 0,156 para 0,208, e o LSTM offline cai para 4º.
+- **A folga do LSTM sobre o IF fica muito pequena (0,003).** Mais um motivo para dizer, com todas as letras, que o IF foi melhor no burst e que o LSTM vence pelo conjunto e pela rapidez.
 
-**Na Fase 3:** o script agora **espera o fim da janela** antes de exportar, para o custo (`pod_seconds`) só ter réplicas medidas (decisão 16). Custa ~2,7 h a mais.
+Relatório completo: `fase1_corrigido/stats/phase1/relatorio.md` (o oficial fica em `results/stats/phase1/`).
+
+**Na Fase 3:** o script agora **espera o fim da janela** antes de exportar, para o custo (`pod_seconds`) só ter réplicas medidas (decisão 16). Custa ~2,7 h a mais. Os scale-ups falsos só contam até o fim do k6 + 60 s, porque depois disso não há carga (decisão 17).
 
 ---
 
@@ -277,9 +297,10 @@ Ao lado, vai o **teste visual**: se os intervalos dos dois modos não se sobrep�
 - **14, drift.** Mantém o desenho: cada repetição roda os 9 pares (modo × cenário) em ordem sorteada, num bloco de ~3,5 h, então o drift cai igual nos três modos. Em cada execução, registra a lentidão do **aquecimento** (`warmup_p95_ms`, sempre no modo A, antes do tratamento). **Antes** de olhar o tempo de reação, mostra que essa lentidão ficou equilibrada entre A, B e C. Não exclui nem refaz execuções lentas.
 - **15, shift.** Mantém o shift. O tempo de reação conta só os picos em que o HPA precisou escalar, e ao lado vão os picos sem reação e as réplicas no início.
 
-- **16, pontos-fantasma.** Na Fase 3, o script espera o fim da janela medida antes de exportar. A Fase 1 fica igual à qualificação.
+- **16, pontos-fantasma.** Na Fase 3, o script espera o fim da janela medida antes de exportar.
+- **17, avaliação até o fim do k6.** Na Fase 1, o número principal é o corrigido (corte no fim do k6 + 15 s), com o "como rodou" ao lado. Na Fase 3, os scale-ups falsos só contam até o fim do k6 + 60 s, e o custo vai até o fim da janela.
 
-Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14, 15 e 16. Falta confirmar com o orientador.
+Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14 a 17. Falta confirmar com o orientador.
 
 ---
 
@@ -296,7 +317,7 @@ Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14, 15 e 16.
 
 ## 11. Frases prontas para a reunião e a banca
 
-1. "Os 6 detectores viram as mesmas 30 execuções ao vivo. O LSTM teve o melhor F1 médio (0,48) e o menor tempo de detecção (11,6 s), e a regra escrita antes dos dados o escolheu."
+1. "Os 6 detectores viram as mesmas 30 execuções ao vivo. O LSTM teve o melhor F1 médio (0,485) e o menor tempo de detecção (11,6 s), e a regra escrita antes dos dados o escolheu."
 2. "Neste protocolo, o ranking offline não previu o online: em 14 de 18 comparações o online foi significativamente melhor, e o melhor offline (EWMA) foi o pior online."
 3. "O IF foi melhor no burst, com diferença significativa; o LSTM venceu no conjunto porque não cai no shift."
 4. "A VPS ficou mais lenta de dia. Na Fase 1 isso não afeta a comparação, porque o teste é pareado. Na Fase 3, os modos rodam misturados em blocos sorteados e a lentidão é medida para mostrar o equilíbrio."

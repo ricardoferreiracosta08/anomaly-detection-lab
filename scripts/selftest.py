@@ -287,8 +287,9 @@ class T(unittest.TestCase):
                             "request_rate", "label", "online_IF"])
                 for i in range(len(t)):
                     w.writerow([1000 + t[i], t[i], *X[i], lab[i], alert[i]])
-            r0 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_skip=0)}
-            r60 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_skip=60)}
+            # sem o corte do fim (decisão 17, testado em test_eval_end): aqui só a acomodação
+            r0 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_skip=0, eval_end_margin=None)}
+            r60 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_skip=60, eval_end_margin=None)}
         full = d.compute_metrics(lab, alert, 1000 + t)
         self.assertEqual(r0["IF_online"].f1, full["f1"])            # 0 s = avaliação antiga
         self.assertEqual(r0["IF_online"].fp, int(((t >= 15) & (t < 50)).sum()))
@@ -296,6 +297,40 @@ class T(unittest.TestCase):
         self.assertEqual(r60["IF_online"].tp, r0["IF_online"].tp)   # nenhum pico do gabarito cortado
         self.assertEqual(r60["IF_online"].total_points, int((t >= 60).sum()))
         self.assertEqual(r60["EWMA"].eval_skip_s, 60)
+
+    def test_eval_end(self):
+        # decisão 17: só entram os pontos até o fim do k6 + margem; depois disso o CSV da
+        # Fase 1 só tem o último valor repetido (pontos-fantasma). off = avaliação oficial
+        import csv as _csv
+        import detectors as d
+        from export_metrics import ANOMALY_PHASES, K6_END_SECONDS
+        for sc, end in K6_END_SECONDS.items():   # nenhum pico do gabarito passa do fim do k6
+            self.assertGreater(end, max(b for _, b in ANOMALY_PHASES[sc]))
+        t, lab, X = burst_series()                # 0–720 s, como a janela do burst
+        cut = K6_END_SECONDS["burst"] + 15        # 633 s
+        alert = lab.copy()
+        alert[t > cut] = 1                        # alerta "repetido" depois do fim do k6
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "burst_run1.csv")
+            with open(path, "w", newline="") as f:
+                w = _csv.writer(f)
+                w.writerow(["timestamp", "offset_seconds", "latency_p95", "cpu_percent", "memory_mb",
+                            "request_rate", "label", "online_IF"])
+                for i in range(len(t)):
+                    w.writerow([1000 + t[i], t[i], *X[i], lab[i], alert[i]])
+            off = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_end_margin=None)}
+            r15 = {r.detector: r for r in d.run_detectors(path, ["EWMA"], eval_end_margin=15)}
+            data = d.load_csv(path, max_offset=cut)
+        self.assertEqual(off["IF_online"].fp, int((t > cut).sum()))   # oficial: fantasmas viram FP
+        self.assertEqual(r15["IF_online"].fp, 0)                      # corrigido: fora
+        self.assertEqual(r15["IF_online"].tp, off["IF_online"].tp)    # nenhum pico cortado
+        self.assertEqual(r15["IF_online"].total_points, int(((t >= 60) & (t <= cut)).sum()))
+        self.assertEqual(r15["EWMA"].eval_end_s, cut)
+        self.assertTrue(np.isnan(off["EWMA"].eval_end_s))
+        self.assertEqual(data["n_points"], int((t <= cut).sum()))     # o detector offline nem vê o resto
+        self.assertEqual(data["n_cut_anom"], 0)
+        self.assertIsNone(d.parse_end_margin("off"))
+        self.assertEqual(d.parse_end_margin("15"), 15.0)
 
     def test_ic_slide55(self):
         from stats_tlc import ic
@@ -333,6 +368,13 @@ class T(unittest.TestCase):
         self.assertEqual(r["scaleups"], 1)
         self.assertEqual(r["false_scaleups"], 0)
         self.assertGreater(pod_seconds(available, start, start + 720), 2 * 700)
+        # decisão 17: scale-up falso só conta até o fim do k6 + grace (burst: 618 + 60 = 678 s)
+        d2 = [(t, 3.0 if t - start >= 600 else 2.0) for t in ts]    # sobe aos 600 s: conta
+        d3 = [(t, 3.0 if t - start >= 700 else 2.0) for t in ts]    # sobe aos 700 s: sem carga, não conta
+        lim = start + 618 + 60
+        self.assertEqual(reaction_metrics(d2, available, start, [], grace=60, count_until=lim)["false_scaleups"], 1)
+        self.assertEqual(reaction_metrics(d3, available, start, [], grace=60, count_until=lim)["false_scaleups"], 0)
+        self.assertEqual(reaction_metrics(d3, available, start, [], grace=60)["false_scaleups"], 1)
 
     def test_k6_summary(self):
         from k6_summary import parse

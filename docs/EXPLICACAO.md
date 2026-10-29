@@ -207,7 +207,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 | Partida a frio fora do escopo | o detector é avaliado em regime (depois do aquecimento) |
 | A VPS ficou mais lenta ao longo do dia (achado da Fase 1) | na Fase 1, os 6 viram a mesma execução, e o teste pareado cancela o efeito. Na Fase 3, cada repetição roda A, B e C misturados em ordem sorteada, e a lentidão do aquecimento (sempre no modo A) é medida para mostrar que ficou equilibrada (decisão 14) |
 | No rampup e no shift, os detectores alarmam antes da 1ª anomalia (achado da Fase 1) | o roteiro sobe a carga na parte que o gabarito chama de normal; vale igual para todos os detectores, e o gabarito da qualificação não muda ([FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5) |
-| O fim de cada CSV da Fase 1 tem pontos que repetem o último valor (achado da Fase 1) | é igual na qualificação; sem esses pontos, o LSTM continua escolhido. Na Fase 3, o script espera o fim da janela antes de exportar (decisão 16) |
+| O fim de cada CSV da Fase 1 tem pontos que repetem o último valor (achado da Fase 1) | é igual na qualificação. A avaliação passou a ir só até o fim do k6 + 15 s, e esse número corrigido é o principal; o LSTM continua escolhido (decisão 17). Na Fase 3, o script espera o fim da janela antes de exportar (decisão 16) |
 | O shift já começa com 3–7 pods (achado da Fase 1) | vale igual para A, B e C. O tempo de reação conta só os picos em que o HPA precisou escalar, e os outros são mostrados ao lado (decisão 15) |
 
 ---
@@ -218,7 +218,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 - o laboratório inteiro;
 - os 6 detectores;
 - os 4 vieses corrigidos;
-- as regras de avaliação e estatística implementadas e testadas (19 testes);
+- as regras de avaliação e estatística implementadas e testadas (20 testes);
 - as decisões de método fechadas com o orientador (28/out/2026);
 - a documentação completa.
 

@@ -96,7 +96,7 @@ Uma única execução do burst, cerca de 20 min (aquecimento incluído). Serve p
 Mesmo que `make experiment`. É o nome antigo, mantido.
 
 ### `make detect`
-Só roda os 6 detectores (e pontua os alertas `online_*`) sobre os CSVs que já estão em `datasets/` e gera `results/detection_results.csv`. Não roda carga nenhuma. A pontuação ignora os primeiros `EVAL_SKIP_SECONDS` (60) segundos de cada execução (acomodação; os detectores veem a série inteira); a coluna `eval_skip_s` registra o valor usado. Para a avaliação antiga: `make detect EVAL_SKIP_SECONDS=0`.
+Só roda os 6 detectores (e pontua os alertas `online_*`) sobre os CSVs que já estão em `datasets/` e gera `results/detection_results.csv`. Não roda carga nenhuma. A pontuação ignora os primeiros `EVAL_SKIP_SECONDS` (60) segundos de cada execução (acomodação; os detectores veem a série inteira); a coluna `eval_skip_s` registra o valor usado. Para a avaliação antiga: `make detect EVAL_SKIP_SECONDS=0`. A avaliação vai só até o **fim do roteiro k6 + `EVAL_END_MARGIN_SECONDS`** (15 s; burst 633, rampup 575, shift 925 s), porque depois disso o CSV não foi medido (decisão 17). A coluna `eval_end_s` registra o corte. `make detect EVAL_END_MARGIN_SECONDS=off` reproduz os números "como rodou" da Fase 1.
 
 ### `make k6-summary`
 Junta os resumos do k6 de cada execução em `results/k6_summary.csv`: média, mediana, p90, p95, p99, requisições e erros, uma linha por execução.

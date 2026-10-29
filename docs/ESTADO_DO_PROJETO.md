@@ -74,7 +74,7 @@ Detalhes: [HPA.md](HPA.md), seção 4; [RUNBOOK_VPS_VPN.md](RUNBOOK_VPS_VPN.md).
 - **Regra de escolha do detector do B** (pré-registrada em 16/out, esclarecida em 18/out; o relatório a aplica): maior média das 3 médias do F1 online (cada cenário pesa igual; o mesmo vencedor nos 3 cenários); grupo de empate = o 1º + todos sem diferença significativa (pareado) para ele em nenhum cenário → dentro do grupo vence o menor MTTD online; requisito de ciclo p95 < 2,5 s, verificado pelo pod (0,48 s com os 6).
 - Diagnósticos: Shapiro-Wilk; replicações necessárias para H/Ȳ ≤ 10% e 20%; validação com o exemplo do slide 55.
 - **Regressão garantida:** com `EVAL_SKIP_SECONDS=0` e `EVAL_TOLERANCE_SECONDS=0`, as métricas reproduzem exatamente a qualificação (45/45).
-- `make selftest`: 19 testes.
+- `make selftest`: 20 testes.
 
 ## 6. Decisões de método
 
@@ -106,6 +106,7 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 |---|---|
 | 14 | drift ao longo do dia: manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`, sempre no modo A) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação; não excluir nem refazer execuções lentas |
 | 15 | shift começando escalado (3–7 réplicas): manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado |
+| 17 | avaliação só até o fim do k6 + 15 s (`EVAL_END_MARGIN_SECONDS`): na Fase 1, número principal = corrigido, com o "como rodou" ao lado (LSTM continua escolhido; saída em `fase1_corrigido/`); na Fase 3, scale-ups falsos até o fim do k6 + 60 s e custo até o fim da janela |
 | 16 | janela exportada além do fim do k6 (pontos-fantasma com o último valor repetido): na Fase 3 o script espera o fim da janela antes de exportar; a Fase 1 fica igual à qualificação (sensibilidade: o LSTM segue escolhido) |
 
 ## 7. Pilotos
@@ -138,9 +139,9 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 
 ## 10. Próximos passos
 
-1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (19 testes).
+1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (20 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
-3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,476; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
+3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,485 no corrigido, que é o principal pela decisão 17; 0,476 "como rodou"; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
 4. **Entre as fases:**
    - backup de `results/` e `datasets/` fora da VPS;
    - registrar os resultados da Fase 1 e fixar `HPA_B_DETECTOR` e `DETECTOR_ALGOS` da Fase 3 (só o detector do B, pela regra);

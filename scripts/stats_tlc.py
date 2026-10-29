@@ -398,6 +398,10 @@ def phase1(det_path, k6_path, out):
 
     md = ["# Fase 1 — IC da média (TLC) e t de Student", "",
           f"Entrada: `{det_path}` · {len(det)} avaliações · N por célula: {nmax} · α = {ALPHA}", "",
+          ("Avaliação até o fim do k6 + margem (decisão 17): último offset avaliado "
+           + ", ".join(f"{sc} {fmt(v, 0)} s" for sc, v in det.groupby("scenario")["eval_end_s"].max().items())
+           + ". Pontos depois disso não foram medidos e ficam fora." if "eval_end_s" in det and det["eval_end_s"].notna().any()
+           else "Avaliação da série inteira, sem corte no fim do k6 (números \"como rodou\"; decisão 17)."), "",
           "## F1", ""] + md_ic_table(T_det, "detector", "f1")
     if k6_path and os.path.exists(k6_path):
         k6 = pd.read_csv(k6_path)

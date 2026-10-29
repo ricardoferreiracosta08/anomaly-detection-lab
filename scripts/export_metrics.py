@@ -76,6 +76,13 @@ ANOMALY_PHASES = {
 }
 
 
+# Fim de cada roteiro k6 (s) = soma dos stages de k6-scripts/*.js (não é gabarito).
+# A janela exportada (DURATION no bin/experiment.sh, herdada da qualificação) é maior:
+# depois do fim do k6 não há carga e, na Fase 1, nem medição (pontos-fantasma).
+# A avaliação vai só até aqui + margem (decisão 17 de docs/DECISOES_METODO.md).
+K6_END_SECONDS = {"burst": 618, "rampup": 560, "shift": 910}
+
+
 def query_prometheus_range(query: str, start: float, end: float, step: str) -> list:
     """Executa range query no Prometheus e retorna lista de (timestamp, value)."""
     resp = requests.get(

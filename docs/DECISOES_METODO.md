@@ -6,7 +6,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 
 ## TL;DR — estado
 
-**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). Falta confirmá-las com o orientador.
+**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). A 17 foi tomada no mesmo dia, antes de gerar os números corrigidos (ver o item). Falta confirmá-las com o orientador.
 
 | # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
@@ -24,7 +24,8 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 | 12 | Janela do detector online | Fases 1 e 3 | 5 min, valor da qualificação; sensibilidade só por replay | **fechada** (implementada) |
 | 13 | ANOVA antes dos pares (slide 65) | Fases 1 e 3 | dispensada, porque as comparações são planejadas | **fechada** |
 | 14 | Drift de desempenho ao longo do dia | Fase 3 | manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação | **fechada** em 29/out/2026 (implementada) |
-| 16 | Janela exportada além do fim do k6 ("pontos-fantasma") | Fase 3 | na Fase 3, esperar o fim da janela antes de exportar; a Fase 1 fica como foi (igual à qualificação), com sensibilidade registrada | **fechada** em 29/out/2026 (implementada) |
+| 16 | Janela exportada além do fim do k6 ("pontos-fantasma") | Fase 3 | na Fase 3, esperar o fim da janela antes de exportar; a Fase 1 é tratada na decisão 17 | **fechada** em 29/out/2026 (implementada) |
+| 17 | Avaliação só até o fim do k6 + 15 s | Fases 1 e 3 | Fase 1: **número principal = corrigido** (corte no fim do k6 + 15 s), com o oficial "como rodou" ao lado. Fase 3: scale-ups falsos só até o fim do k6 + 60 s; custo até o fim da janela | **fechada** em 29/out/2026, antes de gerar os números corrigidos |
 | 15 | Shift já começa escalado | Fase 3 | manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado | **fechada** em 29/out/2026 (já implementada) |
 
 ---
@@ -298,13 +299,43 @@ Tamanho do efeito na Fase 1:
 
 A qualificação tem o mesmo rabo (o `rampup_run1` dela está vazio depois de ~590 s, com a memória repetida). Os alertas repetidos com valor 1 contam como falso positivo.
 
-**Sensibilidade na Fase 1** (só para conferir; os números oficiais não mudam). A conta reproduz exatamente os F1 oficiais; depois foram tirados os pontos-fantasma. O F1 online médio passa de 0,476 para 0,481 no LSTM e de 0,464 para 0,476 no IF. **A escolha não muda:** o LSTM segue em 1º. O burst não tem fantasmas, e nele o IF continua significativamente diferente do LSTM, então fica fora do empate. E o critério de desempate (MTTD) não depende do rabo. A folga entre os dois cai de 0,012 para 0,005, o que reforça a frase "o IF foi melhor no burst" no texto.
+**Sensibilidade na Fase 1** (a primeira conta, só online; o tratamento definitivo é a decisão 17). A conta reproduz exatamente os F1 oficiais; depois foram tirados os pontos-fantasma. O F1 online médio passa de 0,476 para 0,481 no LSTM e de 0,464 para 0,476 no IF. **A escolha não muda:** o LSTM segue em 1º. O burst não tem fantasmas, e nele o IF continua significativamente diferente do LSTM, então fica fora do empate. E o critério de desempate (MTTD) não depende do rabo. A folga entre os dois cai de 0,012 para 0,005, o que reforça a frase "o IF foi melhor no burst" no texto.
 
 **Decisão — Ricardo, 29/out/2026, antes da Fase 3.**
-- **Fase 1:** fica como foi, igual à qualificação. Os números oficiais não mudam; o artefato e a sensibilidade acima entram como limitação (item 9).
+- **Fase 1:** os CSVs ficam como foram, igual à qualificação. A avaliação passou a cortar os pontos não medidos (decisão 17).
 - **Fase 3:** antes de exportar o CSV e calcular as métricas do HPA, o script espera até início + `DURATION` + 15 s. Assim, o `pod_seconds` (custo) e o CSV só têm dado medido: o fim da janela passa a ser o HPA real descendo depois da carga, não a última contagem de réplicas repetida. A janela continua a mesma da Fase 1 e dos pilotos. Custo: ~2,7 h a mais na Fase 3 (de ~32 para ~35 h).
 
 **Fechar antes de:** Fase 3.
+
+---
+
+### 17. Avaliação só até o fim do k6 + 15 s (Fases 1 e 3)
+
+**Situação.** Item 16: o fim de cada CSV tem pontos **não medidos**. São pontos-fantasma (o último valor repetido) e pontos "meio-fantasmas" (taxas calculadas com dados velhos), e eles entravam na avaliação como pontos normais.
+
+**Decisão — Ricardo, 29/out/2026**, registrada **antes** de gerar os números corrigidos. Antes dela, já tinha sido vista só a conta de sensibilidade do F1 online (item 16).
+
+**Fase 1:**
+1. **Corte:** a avaliação usa só os pontos com `offset_seconds` ≤ **fim do roteiro k6 + 15 s**: burst 618 + 15 = **633 s**, rampup 560 + 15 = **575 s**, shift 910 + 15 = **925 s**. Os 15 s são o intervalo do último scrape, o mesmo `sleep 15` do script antes de exportar.
+2. **Igual para todos:** os 6 detectores, offline e online, nas 10 execuções de cada cenário. Os detectores offline também **só veem** os pontos até o corte, porque o resto não é dado. O corte vem do **roteiro**, não dos resultados: o número não foi escolhido olhando F1.
+3. **Número principal = o corrigido.** O número oficial "como rodou" (sem corte, igual à qualificação) vai **ao lado**, numa tabela, com este motivo: pontos não medidos não podem ser avaliados.
+4. Os CSVs brutos **não mudam**: o corte é aplicado na leitura (`EVAL_END_MARGIN_SECONDS=15`; `off` reproduz o oficial).
+5. **A escolha do B não reabre.** A regra do item 7, aplicada aos números oficiais, deu LSTM. Se o corrigido der outro resultado, isso é relatado, e a Fase 3 segue com o LSTM, que foi o fixado pela regra pré-registrada.
+6. **Não se aplica à qualificação** por enquanto: os CSVs dela têm o mesmo rabo, e a sensibilidade fica para depois.
+
+**Fase 3** (`hpa_metrics.py`):
+- **Scale-ups falsos:** só contam os aumentos de réplicas desejadas até o **fim do k6 + 60 s** (`REACTION_GRACE_SECONDS`, a mesma margem do tempo de reação). Depois disso não há mais carga, e o que acontece não é decisão sobre a carga do roteiro.
+- **Custo (`pod_seconds`):** vai até o **fim da janela** (`DURATION`), que agora é medida de verdade (item 16). Os pods que ficam depois da carga são custo real do modo.
+
+**Resultado (gerado depois do registro acima).**
+- **Reprodução:** a avaliação "como rodou" refeita com `EVAL_END_MARGIN_SECONDS=off` bateu célula por célula com a oficial (360 linhas, 0 diferenças), assim como os ICs, os testes t e o ranking da regra do B.
+- **Corrigido (principal):** F1 online médio LSTM 0,485 (era 0,476), IF 0,482 (0,464), AE 0,458 (0,435).
+- **Regra do B:** LSTM. O IF segue fora do empate (difere no burst e no shift).
+- **Offline × online:** 14 a favor do online, 2 do offline (EWMA), 2 sem diferença, igual ao "como rodou".
+- **Offline:** é o que mais muda. O LOF sobe de 0,156 para 0,208 e o IF cai de 0,252 para 0,232.
+- **Saída:** `fase1_corrigido/` (fora do `results/` oficial).
+
+**Fechar antes de:** gerar os números corrigidos da Fase 1 e rodar a Fase 3.
 
 ---
 

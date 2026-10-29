@@ -42,6 +42,14 @@ offline e online. 30 s = a janela dos sinais (rate[30s]: as entradas ainda carre
 até 30 s depois do fim) e cobre a mediana do transbordo online medido no piloto 4
 (10–25 s) e o p90 dos detectores de atraso puro (EWMA, IF: ~30 s). docs/DECISOES_METODO.md.
 
+Fim da avaliação (EVAL_END_MARGIN_SECONDS, padrão 15; decisão 17 de
+docs/DECISOES_METODO.md): só entram os pontos com offset_seconds <= fim do roteiro k6
+(K6_END_SECONDS em export_metrics.py) + margem. Depois disso o CSV da Fase 1 não tem
+medição: o export pedia pontos do futuro e o Prometheus repetia o último valor dos
+gauges (pontos-fantasma). Os pontos cortados não são dado: nem os detectores offline
+os veem. Igual para offline e online. EVAL_END_MARGIN_SECONDS=off reproduz a avaliação
+oficial "como rodou" (e a da qualificação).
+
 Uso:
   python scripts/detectors.py --input datasets/burst_run1.csv --output results/
   python scripts/detectors.py --input datasets/ --output results/  # processa todos CSVs
@@ -63,8 +71,19 @@ from typing import Optional
 
 import numpy as np
 
+from export_metrics import K6_END_SECONDS   # fim de cada roteiro k6 (decisão 17)
+
 EVAL_SKIP_SECONDS = float(os.environ.get("EVAL_SKIP_SECONDS", "60") or 0)
 EVAL_TOLERANCE_SECONDS = float(os.environ.get("EVAL_TOLERANCE_SECONDS", "30") or 0)
+
+
+def parse_end_margin(v) -> Optional[float]:
+    """Margem após o fim do k6 (s); 'off' ou vazio = sem corte (avaliação oficial)."""
+    v = str(v).strip().lower()
+    return None if v in ("", "off", "none") else float(v)
+
+
+EVAL_END_MARGIN_SECONDS = parse_end_margin(os.environ.get("EVAL_END_MARGIN_SECONDS", "15"))
 
 # ── Tentar importar sklearn; informar se ausente ────────────────────────────
 try:
@@ -105,6 +124,7 @@ class DetectionResult:
     eval_tol_s: float = 0.0
     windows_detected: int = 0   # janelas anômalas com ao menos um alerta verdadeiro (entram no MTTD)
     windows_total: int = 0      # janelas anômalas avaliadas
+    eval_end_s: float = float("nan")   # último offset avaliado (fim do k6 + margem); nan = sem corte
 
 
 # =============================================================================
@@ -471,8 +491,9 @@ def impute(col: np.ndarray, how: str) -> np.ndarray:
     return np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)  # NaN no início → 0
 
 
-def load_csv(path: str, how: str = "zero") -> dict:
-    """Carrega CSV exportado pelo export_metrics.py."""
+def load_csv(path: str, how: str = "zero", max_offset: Optional[float] = None) -> dict:
+    """Carrega CSV exportado pelo export_metrics.py. Com max_offset, descarta as linhas
+    depois dele ANTES de imputar: os pontos não medidos não chegam aos detectores."""
     rows = []
     with open(path, "r") as f:
         reader = csv.DictReader(f)
@@ -481,6 +502,12 @@ def load_csv(path: str, how: str = "zero") -> dict:
 
     if not rows:
         raise ValueError(f"CSV vazio: {path}")
+    n_cut = n_cut_anom = 0
+    if max_offset is not None and "offset_seconds" in rows[0]:
+        keep = [r for r in rows if float(r["offset_seconds"]) <= max_offset]
+        n_cut = len(rows) - len(keep)
+        n_cut_anom = sum(int(r["label"]) for r in rows[len(keep):]) if n_cut else 0
+        rows = keep
 
     timestamps = np.array([float(r["timestamp"]) for r in rows])
     labels = np.array([int(r["label"]) for r in rows])
@@ -516,6 +543,8 @@ def load_csv(path: str, how: str = "zero") -> dict:
         "n_points": len(rows),
         "n_missing": n_missing,
         "online": online,
+        "n_cut": n_cut,
+        "n_cut_anom": n_cut_anom,
     }
 
 
@@ -539,9 +568,11 @@ def tolerance_mask(labels: np.ndarray, offsets: np.ndarray, tol: float) -> np.nd
 
 def run_detectors(csv_path: str, selected: list, how: str = "zero",
                   eval_skip: float = EVAL_SKIP_SECONDS,
-                  eval_tol: float = EVAL_TOLERANCE_SECONDS) -> list[DetectionResult]:
+                  eval_tol: float = EVAL_TOLERANCE_SECONDS,
+                  eval_end_margin: Optional[float] = EVAL_END_MARGIN_SECONDS) -> list[DetectionResult]:
     """Executa os detectores selecionados sobre um CSV e retorna resultados.
-    Os detectores veem a série inteira; a pontuação ignora offset < eval_skip."""
+    Os detectores veem a série até o fim do k6 + eval_end_margin (decisão 17; None = inteira);
+    a pontuação ignora offset < eval_skip."""
     fname = Path(csv_path).stem
     # Inferir cenário e run do nome: burst_run1, rampup_run2, shift_run3
     parts = fname.split("_")
@@ -553,7 +584,17 @@ def run_detectors(csv_path: str, selected: list, how: str = "zero",
     print(f"  Cenário: {scenario} | Run: {run}")
     print(f"{'='*60}")
 
-    data = load_csv(csv_path, how)
+    end = None
+    if eval_end_margin is not None:
+        if scenario in K6_END_SECONDS:
+            end = K6_END_SECONDS[scenario] + eval_end_margin
+        else:
+            print(f"  ⚠ cenário {scenario} sem fim de k6 conhecido: sem corte no fim")
+    data = load_csv(csv_path, how, end)
+    if end is not None:
+        print(f"  Fim da avaliação: {end:.0f} s (fim do k6 + {eval_end_margin:.0f} s); {data['n_cut']} ponto(s) não medido(s) fora")
+    if data["n_cut_anom"]:   # nunca deve ocorrer: a última anomalia acaba antes do fim do k6
+        print(f"  ⚠ {data['n_cut_anom']} ponto(s) anômalo(s) do gabarito caem depois do corte")
     keep = eval_mask(data["offsets"], eval_skip)
     cut_anom = int(np.sum(data["labels"][~keep]))
     if cut_anom:   # nunca deve ocorrer: o gabarito começa aos 150/175 s
@@ -581,7 +622,8 @@ def run_detectors(csv_path: str, selected: list, how: str = "zero",
         results.append(DetectionResult(
             detector=name, scenario=scenario, run=run,
             total_points=n, anomaly_ratio=round(n_anom / max(n, 1), 3), eval_skip_s=eval_skip,
-            precision_tol=mt["precision"], recall_tol=mt["recall"], f1_tol=mt["f1"], eval_tol_s=eval_tol, **m
+            precision_tol=mt["precision"], recall_tol=mt["recall"], f1_tol=mt["f1"], eval_tol_s=eval_tol,
+            eval_end_s=float("nan") if end is None else end, **m
         ))
 
     return results
@@ -684,6 +726,8 @@ if __name__ == "__main__":
                         help="segundos iniciais fora da avaliação (acomodação; padrão EVAL_SKIP_SECONDS ou 60)")
     parser.add_argument("--eval-tol", type=float, default=EVAL_TOLERANCE_SECONDS,
                         help="tolerância de atraso após cada pico, métrica secundária (padrão EVAL_TOLERANCE_SECONDS ou 30)")
+    parser.add_argument("--eval-end-margin", type=parse_end_margin, default=EVAL_END_MARGIN_SECONDS,
+                        help="segundos após o fim do k6 até onde se avalia (decisão 17; padrão EVAL_END_MARGIN_SECONDS ou 15; off = sem corte)")
     parser.add_argument("--impute", choices=["ffill", "zero"], default="zero",
                         help="Lacunas do Prometheus: zero (padrão, igual à qualificação) ou ffill")
     args = parser.parse_args()
@@ -697,7 +741,7 @@ if __name__ == "__main__":
     all_results = []
 
     if input_path.is_file():
-        all_results.extend(run_detectors(str(input_path), selected, args.impute, args.eval_skip, args.eval_tol))
+        all_results.extend(run_detectors(str(input_path), selected, args.impute, args.eval_skip, args.eval_tol, args.eval_end_margin))
     elif input_path.is_dir():
         csvs = sorted(input_path.glob("*.csv"))
         if not csvs:
@@ -705,7 +749,7 @@ if __name__ == "__main__":
             sys.exit(1)
         print(f"Encontrados {len(csvs)} CSVs para processar")
         for csv_file in csvs:
-            all_results.extend(run_detectors(str(csv_file), selected, args.impute, args.eval_skip, args.eval_tol))
+            all_results.extend(run_detectors(str(csv_file), selected, args.impute, args.eval_skip, args.eval_tol, args.eval_end_margin))
     else:
         print(f"ERRO: {input_path} não existe")
         sys.exit(1)

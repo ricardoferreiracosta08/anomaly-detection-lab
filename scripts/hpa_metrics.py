@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import requests
 
-from export_metrics import ANOMALY_PHASES
+from export_metrics import ANOMALY_PHASES, K6_END_SECONDS
 from prom_queries import NAMESPACE
 
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
@@ -81,8 +81,10 @@ def increases(series):
     return [series[i][0] for i in range(1, len(series)) if series[i][1] > series[i - 1][1]]
 
 
-def reaction_metrics(desired, available, start, windows, grace=GRACE_SECONDS):
-    """Tempo de reação, tempo até Ready, janelas sem reação, scale-ups e falsos."""
+def reaction_metrics(desired, available, start, windows, grace=GRACE_SECONDS, count_until=None):
+    """Tempo de reação, tempo até Ready, janelas sem reação, scale-ups e falsos.
+    count_until (unix): scale-ups falsos só contam até aqui (fim do k6 + grace; decisão 17).
+    Depois disso não há carga do roteiro; None = janela inteira."""
     react, ready, no_react = [], [], 0
     for a, b in windows:
         t0, t_end = start + a, start + b + grace
@@ -96,7 +98,7 @@ def reaction_metrics(desired, available, start, windows, grace=GRACE_SECONDS):
             ready.append(q)
     ups = increases(desired)
     in_window = lambda t: any(start + a <= t <= start + b + grace for a, b in windows)
-    false_ups = sum(1 for t in ups if not in_window(t))
+    false_ups = sum(1 for t in ups if not in_window(t) and (count_until is None or t <= count_until))
     mean = lambda xs: round(float(np.mean(xs)), 2) if xs else float("nan")
     return {"reaction_time_s": mean(react), "ready_time_s": mean(ready),
             "windows_no_reaction": no_react, "n_windows": len(windows),
@@ -179,7 +181,9 @@ def collect(mode, scenario, run, start, duration, k6_summary=None, ns=NAMESPACE)
         print("ERRO: sem réplicas no Prometheus. kube-state-metrics está rodando? (make status)")
         sys.exit(1)
     row = {"mode": mode, "scenario": scenario, "run": f"run{run}", "start": int(start), "duration": duration}
-    row.update(reaction_metrics(desired, available, start, windows))
+    # scale-ups falsos até o fim do k6 + grace; custo (pod_seconds) até o fim da janela (decisão 17)
+    row.update(reaction_metrics(desired, available, start, windows,
+                                count_until=start + K6_END_SECONDS[scenario] + GRACE_SECONDS))
     row["p95_anom_ms"], row["slo_viol_anom_pct"] = latency_in_windows(start, windows, ns)
     row["slo_viol_all_pct"] = slo_whole_run(start, duration, ns)
     row["pod_seconds"] = pod_seconds(available, start, end)
