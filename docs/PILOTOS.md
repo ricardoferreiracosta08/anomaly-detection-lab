@@ -11,6 +11,7 @@ Registro das execuções de **teste** (antes do experimento definitivo), com a c
 | 1 | `make experiment-quick` (Fase 1, burst, N = 1) | o online ao vivo perde ~0,2 de F1 para o replay, quase tudo em precisão | investigar atraso e falsos alarmes; tolerância de atraso em aberto |
 | 2 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B` | o B "ganhou" em latência porque escalou **antes** dos picos por alarmes falsos: +48% de custo, tempo de reação indefinido. Confirmado: 53–87% de alertas nos 150 s iniciais, sem anomalia | aquecimento + piso do σ; métrica "réplicas no início do pico" |
 | 3 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, com aquecimento (modo A) e piso 0,05 | alertas iniciais caíram de 53–87% para 0–30%; B sem scale-up falso, reage 10 s antes do A com +1% de custo. Mas B e C tiveram latência **pior** que A (p95 nos picos 975 e 1.200 ms × 465 ms) | confirmado: transiente da troca (15–45 s), app com 40× mais itens (viés de ordem) e salto da memória virando ~50σ (140–145 s no A). **Decidido:** reiniciar a app, sobrepor as rampas, piso nas entradas |
+| 5 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, configuração da Fase 3 (só o LSTM; B = LSTM) | pipeline novo ok (p95 do aquecimento 4,8–5,0 ms nos 3; espera do fim da janela; ciclo p95 0,05 s). No B, `ready_time_s` 25 s < `reaction_time_s` 40 s: as médias usavam janelas diferentes. As réplicas não eram salvas | **Decidido:** `ready_time_s` nas mesmas janelas e depois do pedido; séries de réplicas por execução; `make hpa-recalc` (decisão 18) |
 | 4 | `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`, configuração final + LSTM (6 detectores) | ciclo p95 0,48 s, CPU do detector ~0,03 núcleo, 0 reinícios; app com 100 itens em todas; latência de A, B e C comparável de novo (414–539 ms); A com **0** alertas iniciais nos 6, mas B e C com 0–30% (B: EWMA 0) | 1º episódio de latência logo após a troca (nas 3, sistemático) e 2º num pod só (ruído do ambiente). **Decidido:** acomodação de 60 s na avaliação da Fase 1 (`EVAL_SKIP_SECONDS`) |
 
 ---
@@ -298,4 +299,37 @@ Complemento (mesmo cálculo, replay dos 9 CSVs da qualificação, só o atraso d
 **Leitura:** o atraso de verdade fica em ~30 s: os sinais (`rate[30s]`) explicam até ~25 s (replay) e o cluster soma o resto da mediana ao vivo (10–25 s); EWMA e IF online têm p90 ~30 s. A cauda de 72–100 s só aparece nos multivariados (memória e CPU somadas dos pods: pods extras ainda de pé depois do pico) e no EWMA offline (base fixa nos primeiros 150 s): é o estado do sistema após o escalonamento, não atraso.
 
 **Decisão (18/out/2026, Ricardo; fechada em 28/out/2026, alinhada com o orientador):** tolerância de **30 s**, offline e online, como métrica secundária. Não o p90 total (~100 s): ele "perdoaria" um efeito que não é atraso e, com picos a cada 120 s no burst, apagaria quase todo o trecho normal.
+
+## Piloto 5 — configuração da Fase 3 com o LSTM (29/out/2026 23:31 – 30/out/2026 00:39, horário local)
+
+**Por quê:** checar, antes das ~35 h, o que mudou depois da Fase 1 e nunca tinha rodado junto: `warmup_p95_ms` (decisão 14), espera do fim da janela (decisão 16), scale-ups falsos até o fim do k6 + 60 s (decisão 17) e o detector só com o LSTM no B.
+
+**Comando:** `make hpa-experiment REPS=1 SCENARIOS=burst HPA_MODES=A,B,C`. Configuração: `DETECTOR_ALGOS=LSTM`, `HPA_B_DETECTOR=LSTM`, demais valores da Fase 1. Ordem sorteada: **A → C → B**. Dados guardados fora de `results/`, em `pilotos/piloto5/` (não versionado).
+
+**Condição inicial (`warmup_log.csv`):** as 3 com 2 réplicas (`at_min=1`), `anomaly_level` do LSTM = 0,000, 100;100 itens por pod. **`warmup_p95_ms`: A 4,8, C 5,0, B 4,8 ms** (ambiente equilibrado). O `warmup_log.csv` da Fase 1 foi guardado como `warmup_log.antigo.1793327878.csv`, porque o cabeçalho mudou. ✓
+
+**Pipeline:** "aguardando 115–117 s até o fim da janela medida (720 s)" nas 3; CSVs com 145 pontos, 25 anômalos; resumo do k6 nas 3 (erros 0,09–0,14%). ✓
+
+**Custo do detector (só o LSTM, 67 min, 804 ciclos):** ciclo p95 **0,050 s** (com os 6 era 0,48 s), CPU média 0,005 núcleo, 0 reinícios. ✓
+
+**HPA (`hpa_results.csv`, N = 1, com o `ready_time_s` antigo):**
+
+| Métrica | A (só CPU) | B (CPU + LSTM) | C (CPU 35%) |
+|---|---|---|---|
+| `reaction_time_s` | 48,3 s | 40,0 s | **38,3 s** |
+| `ready_time_s` (antigo) | 56,7 s | 25,0 s ⚠️ | 43,3 s |
+| `windows_no_reaction` / `n_windows` | 0/3 | **1/3** | 0/3 |
+| `p95_anom_ms` | 393 ms | **233 ms** | 321 ms |
+| `slo_viol_anom_pct` | 2,2% | **0,5%** | 0,6% |
+| `pod_seconds` | **3.455** | 4.065 (+18%) | 3.540 (+2%) |
+| `scaleups` / `false_scaleups` | 4 / 0 | 6 / **1** | 3 / 0 |
+| `k6_p95_ms` | 489 ms | **243 ms** | 355 ms |
+
+**Achado 1 (métrica): o "pronto" antes do "pedido" no B.** As duas médias usavam janelas diferentes: o `reaction_time_s` só as janelas com reação (2 de 3), e o `ready_time_s` qualquer janela em que as disponíveis subiram, inclusive a 2ª, sem reação, onde um pod pedido **antes** da janela ficou pronto logo no início. Corrigido na decisão 18.
+
+**Achado 2 (leitura, a confirmar com as séries): por que a 2ª janela do B não teve reação.** No CSV do B, o LSTM alertou sem parar de 165 a 305 s; o pico vai de 150 a 185 s, então são ~120 s de alerta depois dele. É a mesma cauda pós-pico do piloto 4 (LSTM_online até ~100 s): a memória somada dos pods continua alta depois do pico. A cauda aparece também no A (155–275 s) e no C (165–280 s), mas lá o detector não age. No B, ele age: o `anomaly_level` em 1 pede o dobro de réplicas. A memória total sobe em degraus aos 260, 275 e 315 s (pods novos), e o scale-up depois de 245 s (fim do pico + 60 s) é o falso. Quando o 2º pico chega (305 s), o B já está escalado: latência p95 de ~16–32 ms no pico, contra ~220–230 ms no A e ~200–275 ms no C. Ou seja, **boa parte da vantagem do B no burst veio de continuar escalado depois do 1º pico, não de prever o 2º**, ao custo de +18% de pods·s. Com o pico seguinte vindo ~120 s depois, a cauda "emenda" os picos. Isso não muda nenhuma decisão: é o modo B funcionando como definido, e as métricas já mostram o efeito (`windows_no_reaction`, `false_scaleups`, `pod_seconds`). Mas entra na discussão da Fase 3. **A confirmar** com as séries de réplicas do piloto, que não eram salvas: `make hpa-recalc DIR=pilotos/piloto5/hpa` antes de o Prometheus apagar (~06/nov).
+
+**Contra o critério:** pipeline novo funcionando, condição inicial igual nos 3 modos, ciclo p95 < 2,5 s, sem reinício: **atingido**.
+
+**Decisão (30/out/2026, Ricardo, antes da Fase 3):** decisão 18 em [DECISOES_METODO.md](DECISOES_METODO.md): `ready_time_s` nas mesmas janelas e depois do pedido; séries de réplicas salvas por execução; `make hpa-recalc`.
 

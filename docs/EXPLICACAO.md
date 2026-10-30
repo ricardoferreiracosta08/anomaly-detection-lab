@@ -139,6 +139,10 @@ Cada piloto custa cerca de 1 h. O experimento definitivo custa **cerca de 43 h**
   2. **soluços num pod só, em horas aleatórias:** ruído do ambiente.
 - **Hipóteses testadas:** pods descendo no aquecimento (descartada); pod novo somando memória (descartada); retreino do LSTM (improvável).
 
+**Piloto 5 (30/out, já com o LSTM no B, antes da Fase 3):**
+- **Achado:** o pipeline novo funcionou (p95 do aquecimento igual nos 3 modos, espera do fim da janela, LSTM sem alerta na largada). Mas o B mostrou o "pod pronto" (25 s) **antes** do "pod pedido" (40 s): as duas médias usavam janelas diferentes.
+- **Correção:** o tempo até pronto passou a usar só as janelas com reação, contando depois do pedido; e as réplicas de cada execução passaram a ser salvas em arquivo, porque o Prometheus apaga tudo em 7 dias (decisão 18).
+
 O resultado mais valioso dos pilotos não são os números (N = 1 não prova nada), e sim os **4 vieses encontrados e corrigidos**.
 
 ---

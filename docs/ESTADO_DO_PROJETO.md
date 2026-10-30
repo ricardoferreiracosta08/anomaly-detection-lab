@@ -74,7 +74,7 @@ Detalhes: [HPA.md](HPA.md), seção 4; [RUNBOOK_VPS_VPN.md](RUNBOOK_VPS_VPN.md).
 - **Regra de escolha do detector do B** (pré-registrada em 16/out, esclarecida em 18/out; o relatório a aplica): maior média das 3 médias do F1 online (cada cenário pesa igual; o mesmo vencedor nos 3 cenários); grupo de empate = o 1º + todos sem diferença significativa (pareado) para ele em nenhum cenário → dentro do grupo vence o menor MTTD online; requisito de ciclo p95 < 2,5 s, verificado pelo pod (0,48 s com os 6).
 - Diagnósticos: Shapiro-Wilk; replicações necessárias para H/Ȳ ≤ 10% e 20%; validação com o exemplo do slide 55.
 - **Regressão garantida:** com `EVAL_SKIP_SECONDS=0` e `EVAL_TOLERANCE_SECONDS=0`, as métricas reproduzem exatamente a qualificação (45/45).
-- `make selftest`: 20 testes.
+- `make selftest`: 21 testes.
 
 ## 6. Decisões de método
 
@@ -139,7 +139,7 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 
 ## 10. Próximos passos
 
-1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (20 testes).
+1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (21 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
 3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,485 no corrigido, que é o principal pela decisão 17; 0,476 "como rodou"; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
 4. **Entre as fases:**
@@ -149,4 +149,5 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 5. **Antes da Fase 3:**
    - diagnosticar o drift, só observando (decisão 14): consumo da VPS de dia e throttling no Grafana, antes de o Prometheus apagar (7 dias);
    - `make hpa-mode HPA_MODE=B && make phase2-check`;
+   - piloto 5 (30/out/2026, burst, A/B/C com o LSTM): pipeline ok; corrigiu o `ready_time_s` e passou a salvar as séries de réplicas (decisão 18). Recalcular o piloto com `make hpa-recalc DIR=pilotos/piloto5/hpa` antes de 06/nov;
    - `make hpa-experiment` (~35 h).

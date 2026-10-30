@@ -53,7 +53,7 @@ ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
 	-v $(CURDIR)/results:/results -e PROMETHEUS_URL=$(PROM_URL) -e NAMESPACE=$(NAMESPACE) \
 	-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) \
 	-e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) -e EVAL_TOLERANCE_SECONDS=$(EVAL_TOLERANCE_SECONDS) \
-	-e EVAL_END_MARGIN_SECONDS=$(EVAL_END_MARGIN_SECONDS) \
+	-e EVAL_END_MARGIN_SECONDS=$(EVAL_END_MARGIN_SECONDS) $(ANALYSIS_VOLS) \
 	$(ANALYSIS_IMAGE)
 
 # =============================================================================
@@ -433,6 +433,19 @@ hpa-analyze:
 	@test -f results/hpa/hpa_results.csv || { echo "✗ results/hpa/hpa_results.csv não existe (rode make hpa-experiment)"; exit 1; }
 	@-$(ANALYSIS_RUN) k6_summary.py --input /results/hpa/k6 --output /results/hpa/k6_summary.csv
 	@$(ANALYSIS_RUN) stats_tlc.py phase3 --hpa /results/hpa/hpa_results.csv --k6 /results/hpa/k6_summary.csv --out /results/stats/phase3
+
+## Recalcula as métricas do HPA de um hpa_results.csv pelo Prometheus (só enquanto ele tiver os dados: 7 dias)
+## Não sobrescreve nada: grava DIR/hpa_results_recalc.csv e DIR/series/. DIR precisa ter hpa_results.csv e k6/
+## Ex.: make hpa-recalc DIR=pilotos/piloto5/hpa
+DIR ?= results/hpa
+hpa-recalc: ANALYSIS_VOLS = -v $(abspath $(DIR)):/recalc
+hpa-recalc:
+	$(call check_analysis_image)
+	@test -f $(DIR)/hpa_results.csv || { echo "✗ $(DIR)/hpa_results.csv não existe"; exit 1; }
+	@mkdir -p $(DIR)/series && chmod 777 $(DIR) $(DIR)/series 2>/dev/null || true
+	@rm -f $(DIR)/hpa_results_recalc.csv
+	@$(ANALYSIS_RUN) hpa_metrics.py --recalc /recalc/hpa_results.csv --k6-dir /recalc/k6 \
+		--output /recalc/hpa_results_recalc.csv --series-dir /recalc/series
 
 # =============================================================================
 # VPS + VPN

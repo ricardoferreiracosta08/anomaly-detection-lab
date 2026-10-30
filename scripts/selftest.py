@@ -365,6 +365,15 @@ class T(unittest.TestCase):
         self.assertEqual(r["reaction_time_s"], 20.0)
         self.assertEqual(r["ready_time_s"], 35.0)
         self.assertEqual(r["windows_no_reaction"], 2)
+        # pronto só nas janelas com reação e depois do pedido: pods de um scale-up anterior
+        # (pedido aos 130 s, prontos aos 160 s) não contam; janela 2 já escalada, sem reação
+        step = lambda o, *cuts: next((v for lim, v in cuts if o < lim), 2.0)
+        d4 = [(t, step(t - start, (130, 2.0), (170, 3.0), (330, 4.0))) for t in ts]
+        a4 = [(t, step(t - start, (160, 2.0), (195, 3.0), (340, 4.0))) for t in ts]
+        r4 = reaction_metrics(d4, a4, start, [(150, 185), (305, 345)], grace=60)
+        self.assertEqual(r4["reaction_time_s"], 20.0)      # janela 1: 3 → 4 aos 170 s
+        self.assertEqual(r4["windows_no_reaction"], 1)     # janela 2: desejadas já em 4
+        self.assertEqual(r4["ready_time_s"], 45.0)         # 195 s (não os 160 s do pedido anterior)
         self.assertEqual(r["scaleups"], 1)
         self.assertEqual(r["false_scaleups"], 0)
         self.assertGreater(pod_seconds(available, start, start + 720), 2 * 700)
@@ -375,6 +384,15 @@ class T(unittest.TestCase):
         self.assertEqual(reaction_metrics(d2, available, start, [], grace=60, count_until=lim)["false_scaleups"], 1)
         self.assertEqual(reaction_metrics(d3, available, start, [], grace=60, count_until=lim)["false_scaleups"], 0)
         self.assertEqual(reaction_metrics(d3, available, start, [], grace=60)["false_scaleups"], 1)
+
+    def test_hpa_series(self):
+        from hpa_metrics import save_series
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "series" / "B_burst_run1.csv"
+            save_series(p, [(1000.0, 2.0), (1005.0, 3.0)], [(1000.0, 2.0)], 1000.0)
+            self.assertEqual(p.read_text().splitlines(),
+                             ["timestamp,offset_seconds,desired,available", "1000,0,2,2", "1005,5,3,"])
 
     def test_k6_summary(self):
         from k6_summary import parse

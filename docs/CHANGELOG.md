@@ -95,6 +95,18 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (30/out, depois do piloto 5): tempo até pronto e séries de réplicas (decisão 18)
+
+- `scripts/hpa_metrics.py`:
+  - `ready_time_s` usa só as janelas com reação, contando a partir do pedido (antes, qualquer janela em que as disponíveis subiram: no piloto 5, o B teve o "pronto" em 25 s e o "pedido" em 40 s);
+  - `--series`: grava as réplicas desejadas e disponíveis da execução;
+  - `--recalc`: refaz as métricas de cada linha de um `hpa_results.csv` pelo Prometheus.
+- `bin/experiment.sh`: cada execução da Fase 3 grava `results/hpa/series/<modo>_<cen>_runN.csv`.
+- `Makefile`: `make hpa-recalc DIR=<pasta>` (não sobrescreve; grava `hpa_results_recalc.csv` e `series/`). `ANALYSIS_RUN` aceita volumes extras (`ANALYSIS_VOLS`).
+- `make selftest`: caso novo em `test_hpa_metrics` (pod pedido antes da janela não conta) e `test_hpa_series`. Agora são 21 testes.
+- `.gitignore`: `pilotos/` (dados de piloto guardados fora de `results/`).
+- `docs/PILOTOS.md`: piloto 5. `DECISOES_METODO.md`: item 18. Atualizados `HPA.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto.
+
 ## Novo (29/out): avaliação só até o fim do k6 (decisão 17)
 
 - `docs/DECISOES_METODO.md`, item 17, registrado **antes** de gerar os números:

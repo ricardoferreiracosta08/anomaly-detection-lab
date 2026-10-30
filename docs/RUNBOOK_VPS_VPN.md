@@ -84,7 +84,7 @@ Marque cada item **antes** do `make experiment` definitivo. Nenhum dado de pilot
 - [ ] **Pilotos limpos:** `make clean` (apaga `datasets/`, `datasets_hpa/` e `results/`; preserva `datasets_qualificacao/` e `results_qualificacao/`). Os pilotos ficam registrados em `docs/PILOTOS.md`.
 - [ ] **`.env` final** (igual ao `.env.example` nestes itens): `REPS=10`, `WARMUP_SECONDS=330`, `WARMUP_OVERLAP=30`, `RESTART_APP=1`, `EVAL_SKIP_SECONDS=60`, `EVAL_TOLERANCE_SECONDS=30`, `DETECTOR_ALGOS=EWMA,IF,LOF,DBSCAN,AE,LSTM`, `DETECTOR_SIGMA_FLOOR=0.05`, `DETECTOR_FEATURE_FLOOR=0.01` e `LSTM_*` (12/16/30/12) (ver `docs/DECISOES_METODO.md`). Conferir com `grep -E '^(REPS|WARMUP_|RESTART_APP|EVAL_|DETECTOR_|LSTM_)' .env`.
 - [ ] **Imagem e detector com a configuração final:** `make build-analysis && make detector-deploy`, e `make detector-logs` mostra os 6 algoritmos, `piso_σ=0.05` e `piso_entrada=0.01` na linha de partida.
-- [ ] **`make selftest` passando** (20 testes, OK).
+- [ ] **`make selftest` passando** (21 testes, OK).
 - [ ] **Último piloto dentro do critério:** `make check-inicio` (ou `DIR=datasets_hpa`) com alertas antes da 1ª anomalia perto de 0%, e `results/warmup_log.csv` com `at_min=1` e `items_per_pod` parecido em todas as execuções (app reiniciada) — rodar **antes** do `make clean`, que apaga os CSVs.
 - [ ] **VPS sem carga anormal nos outros serviços:** `uptime` (load average baixo para o número de núcleos) e `docker stats --no-stream` sem container fora do lab consumindo CPU nos núcleos do cluster.
 
@@ -245,7 +245,7 @@ Com `ROLE=client`, `make up` não cria cluster: só roda o `vpn-check`. Desligue
 - **Execução inválida:** se o k6 não terminar (sem resumo), a execução não é marcada e é refeita na próxima chamada.
 - **Saídas:**
   - Fase 1: `datasets/*.csv`, `results/k6/*.json`, `results/detection_results.csv`, `results/k6_summary.csv`, `results/stats/phase1/`;
-  - Fase 3: `results/hpa/hpa_results.csv`, `results/stats/phase3/`.
+  - Fase 3: `results/hpa/hpa_results.csv`, `results/hpa/series/` (réplicas de cada execução), `results/stats/phase3/`.
 
 ## Solução de problemas
 

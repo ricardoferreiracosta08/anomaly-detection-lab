@@ -12,6 +12,7 @@ datasets/*
 datasets_hpa/
 results/*
 !results/.gitkeep
+pilotos/
 k3d-config.yaml
 .stamps/
 

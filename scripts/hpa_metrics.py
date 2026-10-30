@@ -7,7 +7,8 @@ calcula UMA linha de métricas (o Yi de cada métrica para o IC da média):
 
   reaction_time_s     início da janela anômala → 1º aumento das réplicas DESEJADAS
                       pelo HPA (média nas janelas em que houve reação)
-  ready_time_s        início da janela → 1º aumento das réplicas DISPONÍVEIS
+  ready_time_s        início da janela → 1º aumento das réplicas DISPONÍVEIS depois da
+                      reação (mesmas janelas do reaction_time_s; pods da reação prontos)
   windows_no_reaction janelas anômalas sem nenhum scale-up (censuradas)
   p95_anom_ms         p95 da latência (lado servidor) dentro das janelas anômalas
   slo_viol_anom_pct   % de requisições > SLO_SECONDS dentro das janelas anômalas
@@ -19,10 +20,16 @@ calcula UMA linha de métricas (o Yi de cada métrica para o IC da média):
 
 Janelas anômalas = ground truth do export_metrics.py (mesmo roteiro do k6).
 Requer kube-state-metrics (k8s/monitoring/kube-state-metrics.yaml).
+Com --series, grava também as séries de réplicas (desejadas e disponíveis) da execução:
+o Prometheus guarda só 7 dias, e sem elas as métricas do HPA não poderiam ser revistas.
 
 Uso:
   python hpa_metrics.py --mode B --scenario burst --run 3 --start <unix> --duration 720 \\
-      --k6-summary /results/hpa/k6/B_burst_run3.json --output /results/hpa/hpa_results.csv
+      --k6-summary /results/hpa/k6/B_burst_run3.json --output /results/hpa/hpa_results.csv \\
+      --series /results/hpa/series/B_burst_run3.csv
+  # recalcular todas as linhas de um hpa_results.csv (enquanto o Prometheus tiver os dados):
+  python hpa_metrics.py --recalc /recalc/hpa_results.csv --k6-dir /recalc/k6 \\
+      --output /recalc/hpa_results_recalc.csv --series-dir /recalc/series
 """
 import argparse
 import csv
@@ -91,11 +98,13 @@ def reaction_metrics(desired, available, start, windows, grace=GRACE_SECONDS, co
         r = first_increase(desired, t0, t_end)
         if r is None:
             no_react += 1
-        else:
-            react.append(r)
-        q = first_increase(available, t0, t_end)
+            continue
+        react.append(r)
+        # pronto = pods pedidos NESTA reação disponíveis: mesmas janelas e só depois do pedido
+        # (pods de um scale-up anterior à janela ficando prontos não contam como reação)
+        q = first_increase(available, t0 + r, t_end)
         if q is not None:
-            ready.append(q)
+            ready.append(r + q)
     ups = increases(desired)
     in_window = lambda t: any(start + a <= t <= start + b + grace for a, b in windows)
     false_ups = sum(1 for t in ups if not in_window(t) and (count_until is None or t <= count_until))
@@ -103,6 +112,18 @@ def reaction_metrics(desired, available, start, windows, grace=GRACE_SECONDS, co
     return {"reaction_time_s": mean(react), "ready_time_s": mean(ready),
             "windows_no_reaction": no_react, "n_windows": len(windows),
             "scaleups": len(ups), "false_scaleups": false_ups}
+
+
+def save_series(path, desired, available, start):
+    """Séries de réplicas da execução (uma linha por passo de 5 s), para rever métricas depois."""
+    d, a = dict(desired), dict(available)
+    fmt = lambda v: "" if v is None else f"{v:g}"
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["timestamp", "offset_seconds", "desired", "available"])
+        for t in sorted(set(d) | set(a)):
+            w.writerow([int(t), int(t - start), fmt(d.get(t)), fmt(a.get(t))])
 
 
 def pod_seconds(available, start, end):
@@ -170,7 +191,7 @@ def k6_values(path):
     return round(p95, 1), err
 
 
-def collect(mode, scenario, run, start, duration, k6_summary=None, ns=NAMESPACE):
+def collect(mode, scenario, run, start, duration, k6_summary=None, ns=NAMESPACE, series=None):
     end = start + duration
     windows = ANOMALY_PHASES[scenario]
     desired = prom_range(f'max(kube_horizontalpodautoscaler_status_desired_replicas'
@@ -180,6 +201,8 @@ def collect(mode, scenario, run, start, duration, k6_summary=None, ns=NAMESPACE)
     if not desired or not available:
         print("ERRO: sem réplicas no Prometheus. kube-state-metrics está rodando? (make status)")
         sys.exit(1)
+    if series:
+        save_series(series, desired, available, start)
     row = {"mode": mode, "scenario": scenario, "run": f"run{run}", "start": int(start), "duration": duration}
     # scale-ups falsos até o fim do k6 + grace; custo (pod_seconds) até o fim da janela (decisão 17)
     row.update(reaction_metrics(desired, available, start, windows,
@@ -207,14 +230,29 @@ def upsert(path, row):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Métricas do HPA por execução (Fase 3)")
-    ap.add_argument("--mode", required=True)
-    ap.add_argument("--scenario", required=True, choices=list(ANOMALY_PHASES))
-    ap.add_argument("--run", type=int, required=True)
-    ap.add_argument("--start", type=float, required=True, help="Unix timestamp do início do k6")
-    ap.add_argument("--duration", type=int, required=True)
+    ap.add_argument("--mode")
+    ap.add_argument("--scenario", choices=list(ANOMALY_PHASES))
+    ap.add_argument("--run", type=int)
+    ap.add_argument("--start", type=float, help="Unix timestamp do início do k6")
+    ap.add_argument("--duration", type=int)
     ap.add_argument("--k6-summary", default=None)
     ap.add_argument("--output", required=True)
+    ap.add_argument("--series", default=None, help="CSV com as réplicas desejadas e disponíveis")
+    ap.add_argument("--recalc", default=None, help="hpa_results.csv: recalcula cada linha pelo Prometheus")
+    ap.add_argument("--k6-dir", default=None, help="com --recalc: pasta com <modo>_<cen>_runN.json")
+    ap.add_argument("--series-dir", default=None, help="com --recalc: pasta das séries")
     a = ap.parse_args()
-    r = collect(a.mode, a.scenario, a.run, a.start, a.duration, a.k6_summary)
-    upsert(a.output, r)
-    print("✓ " + " | ".join(f"{k}={r[k]}" for k in FIELDS[5:]))
+    if a.recalc:
+        jobs = [(r["mode"], r["scenario"], int(r["run"][3:]), float(r["start"]), int(float(r["duration"])))
+                for r in csv.DictReader(open(a.recalc))]
+    elif None in (a.mode, a.scenario, a.run, a.start, a.duration):
+        ap.error("informe --mode, --scenario, --run, --start e --duration (ou --recalc)")
+    else:
+        jobs = [(a.mode, a.scenario, a.run, a.start, a.duration)]
+    for mode, sc, run, start, dur in jobs:
+        key = f"{mode}_{sc}_run{run}"
+        k6 = f"{a.k6_dir}/{key}.json" if a.recalc and a.k6_dir else a.k6_summary
+        series = f"{a.series_dir}/{key}.csv" if a.recalc and a.series_dir else a.series
+        r = collect(mode, sc, run, start, dur, k6, series=series)
+        upsert(a.output, r)
+        print("✓ " + (f"{key}: " if a.recalc else "") + " | ".join(f"{k}={r[k]}" for k in FIELDS[5:]))

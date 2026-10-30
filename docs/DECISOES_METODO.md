@@ -6,7 +6,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 
 ## TL;DR — estado
 
-**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). A 17 foi tomada no mesmo dia, antes de gerar os números corrigidos (ver o item). Falta confirmá-las com o orientador.
+**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). A 17 foi tomada no mesmo dia, antes de gerar os números corrigidos (ver o item). A 18 corrige uma métrica secundária da Fase 3, achada no piloto 5 (30/out/2026), antes da Fase 3. Falta confirmar de 14 a 18 com o orientador.
 
 | # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
@@ -26,6 +26,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 | 14 | Drift de desempenho ao longo do dia | Fase 3 | manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação | **fechada** em 29/out/2026 (implementada) |
 | 16 | Janela exportada além do fim do k6 ("pontos-fantasma") | Fase 3 | na Fase 3, esperar o fim da janela antes de exportar; a Fase 1 é tratada na decisão 17 | **fechada** em 29/out/2026 (implementada) |
 | 17 | Avaliação só até o fim do k6 + 15 s | Fases 1 e 3 | Fase 1: **número principal = corrigido** (corte no fim do k6 + 15 s), com o oficial "como rodou" ao lado. Fase 3: scale-ups falsos só até o fim do k6 + 60 s; custo até o fim da janela | **fechada** em 29/out/2026, antes de gerar os números corrigidos |
+| 18 | `ready_time_s` nas mesmas janelas do tempo de reação; séries de réplicas salvas | Fase 3 | tempo até pronto só nas janelas com reação e só depois do pedido; `results/hpa/series/` por execução | **fechada** em 30/out/2026, antes da Fase 3 (implementada) |
 | 15 | Shift já começa escalado | Fase 3 | manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado | **fechada** em 29/out/2026 (já implementada) |
 
 ---
@@ -336,6 +337,24 @@ A qualificação tem o mesmo rabo (o `rampup_run1` dela está vazio depois de ~5
 - **Saída:** `fase1_corrigido/` (fora do `results/` oficial).
 
 **Fechar antes de:** gerar os números corrigidos da Fase 1 e rodar a Fase 3.
+
+### 18. Tempo até pronto nas mesmas janelas do tempo de reação; séries de réplicas salvas (Fase 3)
+
+**Situação (piloto 5, 30/out/2026).** No B, o `ready_time_s` (25 s) saiu **menor** que o `reaction_time_s` (40 s), com 1 janela sem reação. Não faz sentido o pod ficar pronto antes de ser pedido. A causa estava no código: as duas médias usavam **janelas diferentes**.
+- `reaction_time_s`: só as janelas em que as réplicas desejadas subiram;
+- `ready_time_s`: qualquer janela em que as **disponíveis** subiram, mesmo sem reação nela.
+
+No piloto, a 2ª janela do B começou com o HPA já escalado: os pods tinham sido pedidos **antes** dela (scale-up contado como falso). Um desses pods ficou pronto logo no início da janela, e esse atraso curto entrou na média do "pronto" sem ter havido reação. O mesmo pode acontecer dentro de uma janela com reação, se um pod pedido antes dela ficar pronto antes do novo pedido.
+
+Segundo ponto: as séries de réplicas (desejadas e disponíveis) **não eram salvas**. O `hpa_results.csv` guarda só o resumo, e o Prometheus apaga tudo depois de 7 dias (`retention.time=7d`). Sem as séries, não daria para rever nem explicar uma métrica depois da Fase 3.
+
+**Decisão — Ricardo, 30/out/2026, antes da Fase 3**, só com dados de piloto:
+1. **`ready_time_s`** usa as **mesmas janelas** do `reaction_time_s` (as que tiveram reação). Em cada uma, é o 1º aumento das réplicas disponíveis **depois do pedido**, medido do início da janela. Assim, `ready_time_s` ≥ `reaction_time_s` em cada janela: é o tempo até os pods **daquela reação** ficarem prontos.
+2. A métrica **principal** (`reaction_time_s`), `windows_no_reaction`, os scale-ups falsos e o custo **não mudam**.
+3. **Séries salvas:** cada execução grava `results/hpa/series/<modo>_<cen>_runN.csv` (timestamp, offset, desejadas, disponíveis; passo de 5 s). Com `make hpa-recalc DIR=…`, as métricas de um `hpa_results.csv` são recalculadas pelo Prometheus enquanto ele tiver os dados, sem sobrescrever nada.
+4. **Limite que fica:** p95 e SLO nas janelas vêm dos histogramas do Prometheus e **não** podem ser refeitos depois dos 7 dias. O tempo de reação, o tempo até pronto, os scale-ups e o custo podem, a partir das séries.
+
+**Fechar antes de:** Fase 3.
 
 ---
 

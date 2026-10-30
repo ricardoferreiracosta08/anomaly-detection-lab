@@ -8,6 +8,7 @@
 #                              → datasets_hpa/<modo>_<cen>_runN.csv
 #                                results/hpa/k6/<modo>_<cen>_runN.json
 #                                results/hpa/hpa_results.csv (1 linha por execução)
+#                                results/hpa/series/<modo>_<cen>_runN.csv (réplicas)
 #
 # Rigor (material da disciplina):
 #   - ordem aleatória das execuções dentro de cada repetição, com semente fixa
@@ -68,8 +69,8 @@ declare -A DURATION=( [burst]=720 [rampup]=780 [shift]=960 )
 # VUs do aquecimento = nível no fim da 1ª rampa de cada roteiro (30 s → 10, 10, 30)
 declare -A WARMUP_VUS=( [burst]=10 [rampup]=10 [shift]=30 )
 
-mkdir -p datasets datasets_hpa results/k6 results/hpa/k6 results/.done
-chmod 777 datasets datasets_hpa results results/k6 results/hpa results/hpa/k6 2>/dev/null || true
+mkdir -p datasets datasets_hpa results/k6 results/hpa/k6 results/hpa/series results/.done
+chmod 777 datasets datasets_hpa results results/k6 results/hpa results/hpa/k6 results/hpa/series 2>/dev/null || true
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
@@ -280,7 +281,8 @@ one_run() {   # one_run <modo|-> <cenario> <rep>
     analysis export_metrics.py --scenario "$sc" --duration "${DURATION[$sc]}" --start "$start" --output "$csv"
     if [ "$mode" != "-" ]; then
         analysis hpa_metrics.py --mode "$mode" --scenario "$sc" --run "$rep" --start "$start" \
-            --duration "${DURATION[$sc]}" --k6-summary "$summ" --output /results/hpa/hpa_results.csv
+            --duration "${DURATION[$sc]}" --k6-summary "$summ" --output /results/hpa/hpa_results.csv \
+            --series "/results/hpa/series/${key}.csv"   # réplicas da execução (o Prometheus guarda só 7 dias)
     fi
     echo "$PHASE,$key,$mode,$sc,$rep,$start,$(date +%s)" >> results/experiment_log.csv
     touch "results/.done/${PHASE}_${key}"

@@ -125,7 +125,7 @@ Cada execução (modo × cenário × repetição) gera **uma linha** em `results
 | Coluna | O que é | Melhor |
 |---|---|---|
 | `reaction_time_s` | **principal.** Início de cada janela anômala → 1º aumento das réplicas **desejadas**; média nas janelas | menor |
-| `ready_time_s` | idem, até o 1º aumento das réplicas **disponíveis** (pod pronto) | menor |
+| `ready_time_s` | nas **mesmas janelas** do tempo de reação: início da janela → 1º aumento das réplicas **disponíveis** depois do pedido (pods daquela reação prontos; decisão 18) | menor |
 | `windows_no_reaction` / `n_windows` | janelas sem nenhum scale-up (não entram na média do tempo de reação) | menor |
 | `p95_anom_ms` | p95 da latência medida no servidor, só dentro das janelas anômalas | menor |
 | `slo_viol_anom_pct` | % de requisições acima de 500 ms (`SLO_SECONDS`) nas janelas anômalas | menor |
@@ -133,6 +133,8 @@ Cada execução (modo × cenário × repetição) gera **uma linha** em `results
 | `pod_seconds` | **custo:** soma de réplicas disponíveis × tempo | menor |
 | `scaleups` / `false_scaleups` | aumentos no total / fora das janelas anômalas (+60 s de tolerância) | menos falsos |
 | `k6_p95_ms`, `k6_error_rate` | p95 e erros vistos pelo k6 (lado cliente) | menor |
+
+**Séries de réplicas.** Cada execução grava também `results/hpa/series/<modo>_<cen>_runN.csv`, com as réplicas desejadas e disponíveis a cada 5 s. O Prometheus guarda só 7 dias, então são essas séries que permitem rever o tempo de reação, o tempo até pronto, os scale-ups e o custo depois da Fase 3. Enquanto o Prometheus tiver os dados, `make hpa-recalc DIR=<pasta>` refaz as métricas de um `hpa_results.csv` sem sobrescrever nada (decisão 18). O p95 e o SLO nas janelas dependem dos histogramas do Prometheus e não podem ser refeitos depois dos 7 dias.
 
 **Cuidado com o tempo de reação indefinido.** O `reaction_time_s` mede quando o HPA pede **mais** pods do que tinha no início do pico. Se o sistema já está escalado quando o pico chega (por exemplo, depois de scale-ups falsos), não há aumento: a janela conta como "sem reação" e fica fora da média. "Não reagiu porque já estava preparado" e "não reagiu porque falhou" ficam iguais. Leia sempre junto com `windows_no_reaction`, `false_scaleups` e `pod_seconds` (ver [PILOTOS.md](PILOTOS.md), piloto 2).
 

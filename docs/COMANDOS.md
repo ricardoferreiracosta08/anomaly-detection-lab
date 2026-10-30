@@ -182,12 +182,16 @@ Confere se o HPA está recebendo a métrica de anomalia. Mostra o valor de `anom
 ### `make hpa-experiment`
 Para cada repetição, roda as 3 cargas em cada modo de `HPA_MODES` (padrão A, B, C), ou seja, 9 execuções por repetição em ordem sorteada. Com REPS=10 são 90 execuções, cerca de 35 h (24 h de carga + 8,25 h de aquecimento + ~2,7 h esperando o fim da janela medida, decisão 16). Antes de cada execução, a espera pelas 2 réplicas, o cooldown e o aquecimento rodam sempre com o HPA no **modo A**; o modo da execução só é aplicado logo antes do roteiro, para todas começarem com 2 réplicas ([HPA.md](HPA.md), seção 4). Gera:
 - `results/hpa/hpa_results.csv`: tempo de reação, p95 nas anomalias, % acima de 500 ms, custo em pod·s, scale-ups falsos;
+- `results/hpa/series/<modo>_<cen>_runN.csv`: réplicas desejadas e disponíveis de cada execução, a cada 5 s (o Prometheus guarda só 7 dias);
 - a estatística em `results/stats/phase3/`.
 
 É retomável, como a Fase 1.
 
 ### `make hpa-analyze`
 Só recalcula a estatística da Fase 3 sobre os resultados existentes.
+
+### `make hpa-recalc DIR=<pasta>`
+Refaz as métricas do HPA de cada linha de `<pasta>/hpa_results.csv`, consultando o Prometheus de novo (usa `start` e `duration` de cada linha e os resumos do k6 em `<pasta>/k6/`). **Não sobrescreve nada:** grava `<pasta>/hpa_results_recalc.csv` e as séries em `<pasta>/series/`. Só funciona enquanto o Prometheus tiver os dados (7 dias). Exemplo: `make hpa-recalc DIR=pilotos/piloto5/hpa`. Padrão: `DIR=results/hpa`.
 
 ---
 
