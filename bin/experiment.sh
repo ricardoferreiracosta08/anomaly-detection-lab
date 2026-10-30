@@ -238,7 +238,7 @@ analysis() {   # roda um script do container de análise
         -v "$PWD/datasets:/datasets" -v "$PWD/datasets_hpa:/datasets_hpa" -v "$PWD/results:/results" \
         -e PROMETHEUS_URL="$PROM_URL" -e NAMESPACE="$NS" \
         -e DETECTOR_ALGOS="${DETECTOR_ALGOS:-EWMA,IF,LOF,DBSCAN,AE,LSTM}" \
-        -e SLO_SECONDS="${SLO_SECONDS:-0.5}" \
+        -e SLO_SECONDS="${SLO_SECONDS:-0.5}" -e SLO_SENSITIVITY_SECONDS="${SLO_SENSITIVITY_SECONDS:-0.25,1}" \
         "$ANALYSIS_IMAGE" "$@"
 }
 

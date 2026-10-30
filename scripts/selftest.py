@@ -385,6 +385,25 @@ class T(unittest.TestCase):
         self.assertEqual(reaction_metrics(d3, available, start, [], grace=60, count_until=lim)["false_scaleups"], 0)
         self.assertEqual(reaction_metrics(d3, available, start, [], grace=60)["false_scaleups"], 1)
 
+    def test_slo_sensitivity(self):
+        import hpa_metrics as hm
+        # 2 janelas, 100 requisições cada; abaixo de 0,25 s: 60 e 80; abaixo de 1 s: 95 e 100
+        ok = {("0.25", 1185.0): 60, ("0.25", 1345.0): 80, ("1.0", 1185.0): 95, ("1.0", 1345.0): 100}
+        def fake(q, t):
+            if "_count" in q:
+                return 100.0
+            return float(ok.get((q.split('le="')[1].split('"')[0], t), float("nan")))
+        orig = hm.prom_instant
+        hm.prom_instant = fake
+        try:
+            r = hm.slo_sensitivity(1000.0, [(150, 185), (305, 345)])
+        finally:
+            hm.prom_instant = orig
+        self.assertEqual(hm.SENS_FIELDS, ["slo_viol_anom_250ms_pct", "slo_viol_anom_1000ms_pct"])
+        self.assertEqual(r["slo_viol_anom_250ms_pct"], 30.0)    # (40 + 20) / 200
+        self.assertEqual(r["slo_viol_anom_1000ms_pct"], 2.5)    # (5 + 0) / 200
+        self.assertLess(hm.FIELDS.index("slo_viol_anom_pct"), hm.FIELDS.index("slo_viol_anom_250ms_pct"))
+
     def test_hpa_series(self):
         from hpa_metrics import save_series
         from pathlib import Path

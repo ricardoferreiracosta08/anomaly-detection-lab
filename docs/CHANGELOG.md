@@ -95,6 +95,15 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (30/out): sensibilidade do SLO calculada na hora (decisão 8)
+
+- `scripts/hpa_metrics.py`: colunas `slo_viol_anom_250ms_pct` e `slo_viol_anom_1000ms_pct` (% de requisições acima de 250 ms e de 1 s nas janelas anômalas), ao lado do `slo_viol_anom_pct` (500 ms). Os histogramas somem do Prometheus em 7 dias, então a conta é feita em cada execução. Nenhuma outra métrica muda.
+- 250 ms em vez dos 300 ms da decisão 8: o histograma da app não tem balde em 300 ms; 250 ms é contagem exata (registrado no item 8 de `DECISOES_METODO.md`).
+- `SLO_SENSITIVITY_SECONDS=0.25,1` no `.env.example`, no `Makefile` (também passado ao `ANALYSIS_RUN`, com o `SLO_SECONDS`) e no `bin/experiment.sh`.
+- `scripts/stats_tlc.py`: o relatório da Fase 3 traz as colunas de sensibilidade logo depois do SLO principal.
+- `make selftest`: `test_slo_sensitivity`. Agora são 22 testes.
+- Atualizados `HPA.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `FASE1_EXPLICADA.md` e regras do projeto.
+
 ## Novo (30/out, depois do piloto 5): tempo até pronto e séries de réplicas (decisão 18)
 
 - `scripts/hpa_metrics.py`:

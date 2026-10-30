@@ -30,6 +30,8 @@ EVAL_SKIP_SECONDS ?= 60
 EVAL_TOLERANCE_SECONDS ?= 30
 # fim da avaliação: s depois do fim do k6 (decisão 17; off = série inteira, números "como rodou")
 EVAL_END_MARGIN_SECONDS ?= 15
+SLO_SECONDS ?= 0.5
+SLO_SENSITIVITY_SECONDS ?= 0.25,1
 # .env antigo sem as variáveis do LSTM (6º detector): padrões fixos da arquitetura
 LSTM_SEQ_LEN ?= 12
 LSTM_HIDDEN  ?= 16
@@ -54,6 +56,7 @@ ANALYSIS_RUN = docker run --rm --network $(DOCKER_NET) \
 	-e LSTM_SEQ_LEN=$(LSTM_SEQ_LEN) -e LSTM_HIDDEN=$(LSTM_HIDDEN) -e LSTM_EPOCHS=$(LSTM_EPOCHS) \
 	-e EVAL_SKIP_SECONDS=$(EVAL_SKIP_SECONDS) -e EVAL_TOLERANCE_SECONDS=$(EVAL_TOLERANCE_SECONDS) \
 	-e EVAL_END_MARGIN_SECONDS=$(EVAL_END_MARGIN_SECONDS) $(ANALYSIS_VOLS) \
+	-e SLO_SECONDS=$(SLO_SECONDS) -e SLO_SENSITIVITY_SECONDS=$(SLO_SENSITIVITY_SECONDS) \
 	$(ANALYSIS_IMAGE)
 
 # =============================================================================

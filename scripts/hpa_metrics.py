@@ -12,6 +12,8 @@ calcula UMA linha de métricas (o Yi de cada métrica para o IC da média):
   windows_no_reaction janelas anômalas sem nenhum scale-up (censuradas)
   p95_anom_ms         p95 da latência (lado servidor) dentro das janelas anômalas
   slo_viol_anom_pct   % de requisições > SLO_SECONDS dentro das janelas anômalas
+  slo_viol_anom_<L>ms_pct  idem, com os limites de SLO_SENSITIVITY_SECONDS (decisão 8:
+                      250 ms e 1 s). Calculado na hora: os histogramas somem em 7 dias
   slo_viol_all_pct    % de requisições > SLO_SECONDS na execução inteira
   pod_seconds         custo: ∫ réplicas disponíveis dt  (pods × segundos)
   scaleups            nº de aumentos das réplicas desejadas
@@ -48,12 +50,16 @@ from prom_queries import NAMESPACE
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
 SLO_SECONDS = float(os.environ.get("SLO_SECONDS", "0.5"))     # critério de aceitação: 500 ms
 GRACE_SECONDS = float(os.environ.get("REACTION_GRACE_SECONDS", "60"))
+# sensibilidade do SLO (decisão 8): cada limite precisa ser uma borda de balde do histograma
+# da app (0,25 · 0,5 · 1 s ...); por isso 250 ms, e não 300 ms
+SLO_SENS = [float(x) for x in os.environ.get("SLO_SENSITIVITY_SECONDS", "0.25,1").split(",") if x.strip()]
+SENS_FIELDS = [f"slo_viol_anom_{round(s * 1000)}ms_pct" for s in SLO_SENS]
 STEP = 5
 DEPLOY, HPA = "fastapi-app", "fastapi-hpa"
 
 FIELDS = ["mode", "scenario", "run", "start", "duration",
           "reaction_time_s", "ready_time_s", "windows_no_reaction", "n_windows",
-          "p95_anom_ms", "slo_viol_anom_pct", "slo_viol_all_pct",
+          "p95_anom_ms", "slo_viol_anom_pct", *SENS_FIELDS, "slo_viol_all_pct",
           "pod_seconds", "scaleups", "false_scaleups", "k6_p95_ms", "k6_error_rate"]
 
 
@@ -175,6 +181,26 @@ def latency_in_windows(start, windows, ns=NAMESPACE):
     return p95, pct
 
 
+def slo_sensitivity(start, windows, ns=NAMESPACE):
+    """% de requisições acima de cada limite de SLO_SENS, somando as janelas anômalas.
+    Mesma conta do slo_viol_anom_pct, só com outro balde (le) do histograma."""
+    out = {}
+    for s, field in zip(SLO_SENS, SENS_FIELDS):
+        le = str(float(s))          # rótulo do balde como a app publica: "0.25", "1.0"
+        over, total = 0.0, 0.0
+        for a, b in windows:
+            w, t = f"{int(b - a)}s", start + b
+            cnt = prom_instant(f'sum(increase(http_request_duration_seconds_count{{namespace="{ns}"}}[{w}]))', t)
+            ok = prom_instant(f'sum(increase(http_request_duration_seconds_bucket{{namespace="{ns}", le="{le}"}}[{w}]))', t)
+            if math.isfinite(cnt) and math.isfinite(ok) and cnt > 0:
+                total += cnt
+                over += max(cnt - ok, 0.0)
+        out[field] = round(100 * over / total, 3) if total > 0 else float("nan")
+        if total == 0:
+            print(f"AVISO: {field} vazio (le=\"{le}\" é um balde do histograma da app?)")
+    return out
+
+
 def slo_whole_run(start, duration, ns=NAMESPACE):
     w, t, le = f"{int(duration)}s", start + duration, f"{SLO_SECONDS:g}"
     cnt = prom_instant(f'sum(increase(http_request_duration_seconds_count{{namespace="{ns}"}}[{w}]))', t)
@@ -208,6 +234,7 @@ def collect(mode, scenario, run, start, duration, k6_summary=None, ns=NAMESPACE,
     row.update(reaction_metrics(desired, available, start, windows,
                                 count_until=start + K6_END_SECONDS[scenario] + GRACE_SECONDS))
     row["p95_anom_ms"], row["slo_viol_anom_pct"] = latency_in_windows(start, windows, ns)
+    row.update(slo_sensitivity(start, windows, ns))
     row["slo_viol_all_pct"] = slo_whole_run(start, duration, ns)
     row["pod_seconds"] = pod_seconds(available, start, end)
     row["k6_p95_ms"], row["k6_error_rate"] = k6_values(k6_summary)

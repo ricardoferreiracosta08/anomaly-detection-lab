@@ -476,7 +476,11 @@ def phase3(hpa_path, k6_path, out):
     h["mode"] = h["mode"].astype(str)
     metrics = ["reaction_time_s", "ready_time_s", "p95_anom_ms", "slo_viol_anom_pct", "slo_viol_all_pct",
                "pod_seconds", "scaleups", "false_scaleups", "k6_p95_ms", "k6_error_rate"]
-    metrics = [m for m in metrics if m in h]
+    # sensibilidade do SLO (decisão 8), logo depois do SLO principal
+    sens = sorted((c for c in h if c.startswith("slo_viol_anom_") and c.endswith("ms_pct")),
+                  key=lambda c: int(c.split("_")[3][:-2]))
+    i = metrics.index("slo_viol_anom_pct") + 1
+    metrics = [m for m in metrics[:i] + sens + metrics[i:] if m in h]
     T = table(h, ["scenario", "mode"], metrics)
     pairs = [p for p in [("B", "A"), ("B", "C"), ("C", "A"), ("D", "B")] if p[0] in modes and p[1] in modes]
     T_t = pd.concat([pairwise(h, "scenario", "mode", m, pairs) for m in metrics], ignore_index=True)

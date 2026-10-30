@@ -6,7 +6,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 
 ## TL;DR — estado
 
-**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). A 17 foi tomada no mesmo dia, antes de gerar os números corrigidos (ver o item). A 18 corrige uma métrica secundária da Fase 3, achada no piloto 5 (30/out/2026), antes da Fase 3. Falta confirmar de 14 a 18 com o orientador.
+**Todas as decisões estão fechadas.** As de 1 a 13 foram alinhadas com o orientador e registradas em 28/out/2026, antes da Fase 1. O modo D (item 5) foi fechado em 29/out/2026: não será usado. As decisões 14, 15 e 16 foram tomadas por Ricardo em 29/out/2026, depois da Fase 1 e antes da Fase 3, só com dados de ambiente (latência e réplicas, sem olhar F1). A 17 foi tomada no mesmo dia, antes de gerar os números corrigidos (ver o item). A 18 corrige uma métrica secundária da Fase 3, achada no piloto 5 (30/out/2026), antes da Fase 3. No mesmo dia, o limite baixo da sensibilidade do SLO (item 8) passou de 300 para 250 ms, por causa dos baldes do histograma. Falta confirmar de 14 a 18 e esse ajuste do 8 com o orientador.
 
 | # | Decisão | Afeta | O que foi decidido | Estado |
 |---|---|---|---|---|
@@ -17,7 +17,7 @@ Um só lugar para as decisões de método, com data, motivo e estado.
 | 5 | Detectores no cluster | Fases 1 e 3 | Fase 1 com os 6 num pod; Fase 3 só o do B, **igual nos modos A, B e C** | **fechada**; modo D: **não usado** (29/out/2026) |
 | 6 | Tolerância de atraso na avaliação | Fase 1 | sem (principal) e com **30 s** (secundário), offline e online | **fechada** (implementada) |
 | 7 | Detector do modo B e métrica principal | Fase 3 | regra registrada em 16/out/2026 (ver item 7); métrica: tempo de reação | **fechada** (implementada) |
-| 8 | Valor do SLO | Fase 3 | 500 ms + sensibilidade a 300 ms e 1 s | **fechada** |
+| 8 | Valor do SLO | Fase 3 | 500 ms + sensibilidade a **250 ms** e 1 s, calculada na hora (ver o item) | **fechada**; limite baixo ajustado em 30/out/2026, antes da Fase 3 (implementada) |
 | 9 | Ameaças à validade | escrita | declarar as limitações listadas no item 9 | **fechada** |
 | 10 | Forma do IC (t·S/√N × t·S) | Fases 1 e 3 | t·S/√N; t·S só na coluna `H_tDP`, para comparação | **fechada** (implementada) |
 | 11 | Acomodação inicial da avaliação (burn-in) | Fase 1 | 60 s fora da pontuação (`EVAL_SKIP_SECONDS`) | **fechada** (implementada) |
@@ -166,6 +166,11 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 **Proposta.** Manter 500 ms. Como análise de sensibilidade, recalcular a violação de SLO com outros limites (por exemplo, 300 ms e 1 s). Isso não exige rodar nada de novo. O tempo de reação, a métrica principal, não depende do SLO.
 
 **Decisão — fechada em 28/out/2026, alinhada com o orientador:** 500 ms, com a sensibilidade a 300 ms e 1 s.
+
+**Ajuste de implementação — Ricardo, 30/out/2026, antes da Fase 3** (sem resultado da Fase 3; o piloto 5 não mostrou esses números):
+- **"Não exige rodar nada de novo" estava errado.** A % acima de um limite vem dos histogramas de latência do Prometheus, e eles somem em 7 dias (`retention.time=7d`). Então a sensibilidade é calculada **na hora**, em cada execução, junto com o SLO de 500 ms: colunas `slo_viol_anom_250ms_pct` e `slo_viol_anom_1000ms_pct` no `hpa_results.csv` (só nas janelas anômalas, mesma conta do `slo_viol_anom_pct`).
+- **300 ms virou 250 ms.** O histograma da app só tem baldes em 5, 10, 25, 50, 100, **250**, **500** ms, **1 s**, 2,5 s, 5 s e 10 s. Com 300 ms seria preciso estimar (supor as requisições espalhadas por igual entre 250 e 500 ms). Com 250 ms a conta é **exata**, como a de 500 ms e a de 1 s. A decisão dizia "por exemplo, 300 ms"; o objetivo (um limite mais apertado e um mais folgado) se mantém. Criar um balde de 300 ms na app foi descartado: mudaria o p95 que o detector e as outras métricas usam.
+- Configuração: `SLO_SENSITIVITY_SECONDS=0.25,1` (cada valor tem de ser uma borda de balde). Nenhuma outra métrica muda.
 
 ### 9. Ameaças à validade
 

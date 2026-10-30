@@ -90,10 +90,13 @@ O online usa outra régua: "**bem acima do que foi normal nos últimos 5 min**",
 O **C** é a peça mais esperta do desenho. Se o B ganhar do A, pode ser só porque escalou mais e gastou mais. O C responde: "escalar cedo **sem** detector já basta?". O B só é bom de verdade se ganhar do A **e** não perder para o C no custo.
 
 **O que se mede em cada pico:**
-- **Tempo de reação** (métrica principal): do início do pico até o HPA pedir mais pods.
-- **Latência** e % de requisições acima de 500 ms durante o pico.
+- **Tempo de reação** (métrica principal): do início do pico até o HPA **pedir** mais pods.
+- **Tempo até pronto:** do início do pico até os pods **daquele pedido** ficarem prontos. Conta só nos picos em que houve pedido, e só depois dele: o "pronto" nunca vem antes do "pedido" (decisão 18, achado do piloto 5).
+- **Latência** e % de requisições acima de 500 ms durante o pico. Para mostrar que a conclusão não depende da régua escolhida, a mesma conta sai também com **250 ms** (régua mais exigente) e **1 s** (mais folgada). É a "sensibilidade do SLO" (decisão 8).
 - **Custo:** pods × segundos.
 - **Scale-ups falsos:** pedidos de pods fora dos picos.
+
+**Por que algumas contas são feitas na hora.** O Prometheus é a "memória" do laboratório, mas só guarda 7 dias. A latência fica guardada em "gavetas" (até 250 ms, até 500 ms, até 1 s...). Por isso a régua baixa é 250 ms e não 300 ms: não existe gaveta de 300 ms, e contar 300 ms seria chutar como as requisições se espalham dentro da gaveta de 250 a 500 ms. Com 250 ms, a conta é exata. Como as gavetas somem em 7 dias, as três réguas são calculadas no fim de cada execução. Já as réplicas (quantos pods foram pedidos e quantos ficaram prontos, a cada 5 s) passam a ser salvas em arquivo, para dar para refazer o tempo de reação e o custo depois.
 
 ---
 
@@ -143,7 +146,9 @@ Cada piloto custa cerca de 1 h. O experimento definitivo custa **cerca de 43 h**
 - **Achado:** o pipeline novo funcionou (p95 do aquecimento igual nos 3 modos, espera do fim da janela, LSTM sem alerta na largada). Mas o B mostrou o "pod pronto" (25 s) **antes** do "pod pedido" (40 s): as duas médias usavam janelas diferentes.
 - **Correção:** o tempo até pronto passou a usar só as janelas com reação, contando depois do pedido; e as réplicas de cada execução passaram a ser salvas em arquivo, porque o Prometheus apaga tudo em 7 dias (decisão 18).
 
-O resultado mais valioso dos pilotos não são os números (N = 1 não prova nada), e sim os **4 vieses encontrados e corrigidos**.
+- **Leitura a confirmar:** no 1º pico, o LSTM continuou alertando por ~120 s depois do fim, porque a memória somada dos pods fica alta (a "cauda" já vista no piloto 4). No B, esse alerta continua pedindo pods, e o 2º pico já encontrou o B escalado. Ou seja, parte da vantagem do B no burst pode vir de **continuar escalado**, e não de **prever** o pico, com +18% de custo. N = 1: as séries de réplicas do piloto (`make hpa-recalc`) vão confirmar ou não.
+
+O resultado mais valioso dos pilotos não são os números (N = 1 não prova nada), e sim os **4 vieses encontrados e corrigidos** nos pilotos 2 a 4, mais a correção de medida do piloto 5.
 
 ---
 
@@ -222,21 +227,27 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 - o laboratório inteiro;
 - os 6 detectores;
 - os 4 vieses corrigidos;
-- as regras de avaliação e estatística implementadas e testadas (20 testes);
+- as regras de avaliação e estatística implementadas e testadas (22 testes);
 - as decisões de método fechadas com o orientador (28/out/2026);
 - a documentação completa.
 
 **Feito em 29/out/2026:**
 - a Fase 1 rodou: 30 execuções, das 00h24 às 13h;
-- as decisões 14 (drift) e 15 (shift) foram tomadas antes da Fase 3.
+- as decisões 14 a 17 foram tomadas antes da Fase 3.
+
+**Feito em 30/out/2026:**
+- o piloto 5 testou a configuração da Fase 3 (só o LSTM; B = LSTM): tudo funcionou;
+- ele mostrou o "pronto antes do pedido" e que as réplicas não eram salvas → decisão 18;
+- a sensibilidade do SLO (250 ms e 1 s) passou a ser calculada em cada execução (decisão 8).
 
 **Falta:**
-1. Backup dos resultados da Fase 1 fora da VPS; registrar os resultados; fixar o detector do B, que a regra escolhe.
-2. Diagnosticar de onde vem a lentidão do dia, só olhando (o modo D não será usado: a Fase 3 compara só A, B e C).
-3. **Rodar a Fase 3** (~35 h), analisar e escrever.
+1. Na VPS: `git pull`, `make build-analysis`, `make selftest` e `make hpa-recalc DIR=pilotos/piloto5/hpa` (antes de ~06/nov).
+2. Confirmar com o orientador as decisões 14 a 18 e o ajuste do SLO para 250 ms.
+3. Diagnosticar de onde vem a lentidão do dia, só olhando (o modo D não será usado: a Fase 3 compara só A, B e C).
+4. **Rodar a Fase 3** (~35 h), analisar e escrever.
 
 ```
-Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão → Fase 3 (~35 h) → análise e escrita
+Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão: LSTM ✅ → piloto 5 ✅ → Fase 3 (~35 h) → análise e escrita
 ```
 
 ---

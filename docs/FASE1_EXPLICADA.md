@@ -300,7 +300,10 @@ Ao lado, vai o **teste visual**: se os intervalos dos dois modos não se sobrep�
 - **16, pontos-fantasma.** Na Fase 3, o script espera o fim da janela medida antes de exportar.
 - **17, avaliação até o fim do k6.** Na Fase 1, o número principal é o corrigido (corte no fim do k6 + 15 s), com o "como rodou" ao lado. Na Fase 3, os scale-ups falsos só contam até o fim do k6 + 60 s, e o custo vai até o fim da janela.
 
-Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14 a 17. Falta confirmar com o orientador.
+- **18, tempo até pronto e réplicas salvas** (30/out, depois do piloto 5). O "pod pronto" passa a ser contado só nos picos em que houve pedido, e depois do pedido. As réplicas de cada execução ficam salvas em arquivo, porque o Prometheus apaga tudo em 7 dias.
+- **8, ajuste do SLO** (30/out). A régua de sensibilidade baixa passa de 300 para 250 ms, porque o histograma da app não tem gaveta de 300 ms; 250 ms e 1 s são calculados em cada execução, junto com os 500 ms.
+
+Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 8 e 14 a 18. Falta confirmar com o orientador.
 
 ---
 
@@ -311,7 +314,9 @@ Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 14 a 17. Fal
 3. **Diagnosticar o drift, só olhando,** antes de o Prometheus apagar a Fase 1 (~05/nov):
    - de dia, na VPS: `uptime`, `top`, `docker stats`;
    - no Grafana: throttling da app nas horas da Fase 1.
-4. `make hpa-mode HPA_MODE=B && make phase2-check`, depois `make hpa-experiment` (~35 h).
+4. `make hpa-mode HPA_MODE=B && make phase2-check`.
+5. **Piloto 5** (feito em 30/out): a configuração da Fase 3 funcionou; gerou a decisão 18 ([PILOTOS.md](PILOTOS.md)). Na VPS: `git pull`, `make build-analysis`, `make selftest` (22 testes) e `make hpa-recalc DIR=pilotos/piloto5/hpa` antes de ~06/nov.
+6. `make hpa-experiment` (~35 h).
 
 ---
 

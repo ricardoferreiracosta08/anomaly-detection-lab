@@ -74,7 +74,7 @@ Detalhes: [HPA.md](HPA.md), seção 4; [RUNBOOK_VPS_VPN.md](RUNBOOK_VPS_VPN.md).
 - **Regra de escolha do detector do B** (pré-registrada em 16/out, esclarecida em 18/out; o relatório a aplica): maior média das 3 médias do F1 online (cada cenário pesa igual; o mesmo vencedor nos 3 cenários); grupo de empate = o 1º + todos sem diferença significativa (pareado) para ele em nenhum cenário → dentro do grupo vence o menor MTTD online; requisito de ciclo p95 < 2,5 s, verificado pelo pod (0,48 s com os 6).
 - Diagnósticos: Shapiro-Wilk; replicações necessárias para H/Ȳ ≤ 10% e 20%; validação com o exemplo do slide 55.
 - **Regressão garantida:** com `EVAL_SKIP_SECONDS=0` e `EVAL_TOLERANCE_SECONDS=0`, as métricas reproduzem exatamente a qualificação (45/45).
-- `make selftest`: 21 testes.
+- `make selftest`: 22 testes.
 
 ## 6. Decisões de método
 
@@ -95,7 +95,7 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 | 7 | regra de escolha do B + métrica principal (tempo de reação) |
 | 11 | acomodação de 60 s na avaliação da Fase 1 |
 | 12 | janela do detector fixa em 5 min (valor da qualificação); sensibilidade só por replay |
-| 8 | SLO 500 ms, com sensibilidade a 300 ms e 1 s |
+| 8 | SLO 500 ms, com sensibilidade a 300 ms e 1 s (em 30/out/2026, antes da Fase 3: **250 ms** e 1 s, porque o histograma não tem balde em 300 ms; calculada na hora, porque os histogramas somem em 7 dias) |
 | 10 | forma do IC: t·S/√N |
 | 13 | ANOVA dispensada, porque as comparações são planejadas |
 | 9 | ameaças à validade declaradas: cluster de 1 nó, carga sintética, app de teste, VPS compartilhada, partida a frio fora do escopo, detector disputando CPU com a app, ruído de latência por pod; em 29/out: drift ao longo do dia e shift começando escalado |
@@ -107,6 +107,7 @@ Fonte única: [DECISOES_METODO.md](DECISOES_METODO.md).
 | 14 | drift ao longo do dia: manter os blocos sorteados; registrar o p95 do aquecimento (`warmup_p95_ms`, sempre no modo A) e mostrar o equilíbrio entre A, B e C antes de olhar o tempo de reação; não excluir nem refazer execuções lentas |
 | 15 | shift começando escalado (3–7 réplicas): manter o shift; tempo de reação só nas janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado |
 | 17 | avaliação só até o fim do k6 + 15 s (`EVAL_END_MARGIN_SECONDS`): na Fase 1, número principal = corrigido, com o "como rodou" ao lado (LSTM continua escolhido; saída em `fase1_corrigido/`); na Fase 3, scale-ups falsos até o fim do k6 + 60 s e custo até o fim da janela |
+| 18 | (30/out/2026, depois do piloto 5) `ready_time_s` nas mesmas janelas do tempo de reação e contado depois do pedido; séries de réplicas de cada execução em `results/hpa/series/`; `make hpa-recalc` |
 | 16 | janela exportada além do fim do k6 (pontos-fantasma com o último valor repetido): na Fase 3 o script espera o fim da janela antes de exportar; a Fase 1 fica igual à qualificação (sensibilidade: o LSTM segue escolhido) |
 
 ## 7. Pilotos
@@ -118,6 +119,7 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 | 1 (Fase 1, burst, N = 1) | online sem atraso (replay) supera o offline em 4 de 5; ao vivo perde ~0,2 de F1, quase tudo em precisão | investigar alarmes falsos |
 | 2 (HPA A × B) | 53–87% de alarmes falsos nos 150 s iniciais (detector aprendia o silêncio entre execuções); B "ganhou" por superprovisionar: +48% de custo, 2 scale-ups falsos, reação indefinida | aquecimento + piso do σ |
 | 3 (A × B × C, com aquecimento) | alarmes iniciais 0–26%; B sem scale-up falso, reagiu 10 s antes do A com +1% de custo; mas B e C com latência pior. Vieses: transiente na troca (alertas 15–45 s), estado da app crescendo (~4.000 itens/pod, viés de ordem), salto de 0,25 MB na memória virando ~50σ | rampas sobrepostas, reinício da app, piso nas entradas |
+| 5 (configuração da Fase 3: só o LSTM, B = LSTM) | pipeline novo ok: `warmup_p95_ms` 4,8–5,0 ms nos 3 modos, espera do fim da janela, ciclo p95 0,05 s; no B, `ready_time_s` (25 s) < `reaction_time_s` (40 s): janelas diferentes nas duas médias; réplicas não eram salvas. Leitura a confirmar: o LSTM alertou ~120 s depois do 1º pico (cauda da memória) e o B entrou no 2º pico já escalado (+18% de custo) | decisão 18; recalcular com `make hpa-recalc` antes de ~06/nov |
 | 4 (configuração final + LSTM) | condição inicial ok (100 itens, 2 réplicas); ciclo p95 0,48 s; latência de A, B e C comparável de novo (414–539 ms); reação A 48 s, B 42 s, C 38 s; custo B +3%, C +14% (1 scale-up falso, por CPU). Alertas iniciais: A 0 nos 6; B e C 0–30%. Dois tipos de oscilação de latência: logo após a troca (nas 3, sistemático) e num pod só em instantes irregulares (ruído do ambiente) | acomodação de 60 s; tolerância medida: 30 s |
 
 - **Piloto 4, hipóteses:** descartadas — réplicas descendo no aquecimento, pod novo somando memória; **improvável, não descartada** — retreino do LSTM (relógio do pod, não do roteiro).
@@ -139,7 +141,7 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 
 ## 10. Próximos passos
 
-1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (21 testes).
+1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (22 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
 3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,485 no corrigido, que é o principal pela decisão 17; 0,476 "como rodou"; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
 4. **Entre as fases:**
