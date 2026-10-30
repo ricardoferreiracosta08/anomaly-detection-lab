@@ -325,9 +325,25 @@ Complemento (mesmo cálculo, replay dos 9 CSVs da qualificação, só o atraso d
 | `scaleups` / `false_scaleups` | 4 / 0 | 6 / **1** | 3 / 0 |
 | `k6_p95_ms` | 489 ms | **243 ms** | 355 ms |
 
-**Achado 1 (métrica): o "pronto" antes do "pedido" no B.** As duas médias usavam janelas diferentes: o `reaction_time_s` só as janelas com reação (2 de 3), e o `ready_time_s` qualquer janela em que as disponíveis subiram, inclusive a 2ª, sem reação, onde um pod pedido **antes** da janela ficou pronto logo no início. Corrigido na decisão 18.
+**Achado 1 (métrica): o "pronto" antes do "pedido" no B.** O `ready_time_s` não estava amarrado à reação: contava o 1º pod que ficasse pronto depois do início da janela, viesse de onde viesse. Na 2ª janela, o 7º pod foi pedido aos 305 s (início exato da janela, ainda pela cauda do 1º pico) e ficou pronto aos 310 s: o "pronto" saiu 5 s, enquanto a reação de verdade (8º pod) veio aos 350 s, 45 s. Corrigido na decisão 18. (Antes de ver as séries, este registro dizia que a janela sem reação era a 2ª; as séries mostraram que é a 3ª.)
 
-**Achado 2 (leitura, a confirmar com as séries): por que a 2ª janela do B não teve reação.** No CSV do B, o LSTM alertou sem parar de 165 a 305 s; o pico vai de 150 a 185 s, então são ~120 s de alerta depois dele. É a mesma cauda pós-pico do piloto 4 (LSTM_online até ~100 s): a memória somada dos pods continua alta depois do pico. A cauda aparece também no A (155–275 s) e no C (165–280 s), mas lá o detector não age. No B, ele age: o `anomaly_level` em 1 pede o dobro de réplicas. A memória total sobe em degraus aos 260, 275 e 315 s (pods novos), e o scale-up depois de 245 s (fim do pico + 60 s) é o falso. Quando o 2º pico chega (305 s), o B já está escalado: latência p95 de ~16–32 ms no pico, contra ~220–230 ms no A e ~200–275 ms no C. Ou seja, **boa parte da vantagem do B no burst veio de continuar escalado depois do 1º pico, não de prever o 2º**, ao custo de +18% de pods·s. Com o pico seguinte vindo ~120 s depois, a cauda "emenda" os picos. Isso não muda nenhuma decisão: é o modo B funcionando como definido, e as métricas já mostram o efeito (`windows_no_reaction`, `false_scaleups`, `pod_seconds`). Mas entra na discussão da Fase 3. **A confirmar** com as séries de réplicas do piloto, que não eram salvas: `make hpa-recalc DIR=pilotos/piloto5/hpa` antes de o Prometheus apagar (~06/nov).
+**Achado 2 (confirmado com as séries de réplicas): o B escala na cauda do pico e fica no máximo.** Réplicas desejadas do B (`pilotos/piloto5/hpa/series/B_burst_run1.csv`):
+
+| Instante | Desejadas | O que acontecia |
+|---|---|---|
+| 0–180 s | 2 | carga normal; 1º pico começa aos 150 s |
+| 185 s | 3 | **reação ao 1º pico** (35 s; pronto aos 195 s) |
+| 200 s | 4 | ainda dentro da tolerância do 1º pico |
+| 245 s | 5 | fim da tolerância (185 + 60 s); carga normal, CPU ~5% |
+| 260 s | 6 | **scale-up falso**: só a cauda de alertas do LSTM (165–305 s sem parar) |
+| 305 s | 7 | início do 2º pico, ainda pela cauda (carga ainda normal) |
+| 350 s | 8 | **reação ao 2º pico** (45 s); máximo do HPA (`maxReplicas`) |
+| 350–630 s | 8 | no máximo até o fim do k6; **3º pico (465 s) sem reação possível** |
+| 635–720 s | 7 → 6 | descida |
+
+**Leitura:** a cauda de alertas pós-pico do LSTM (a memória somada dos pods continua alta; a mesma cauda aparece no A e no C, onde não age) fez o B passar de 4 para 6 pods com carga normal, e ele entrou no 2º pico com 6–7 pods. Latência p95 no 2º pico: ~16–32 ms no B, contra ~220–230 ms no A e ~200–275 ms no C. Depois disso, ficou no máximo (8) por ~280 s. Ou seja, **boa parte da vantagem do B no burst veio de continuar escalado, não de prever os picos**, ao custo de +18% de pods·s. A janela sem reação (a 3ª) é **teto**, não falha: o B não tinha mais pods para pedir.
+
+**Consequência para a leitura da Fase 3 (sem mudar nenhuma decisão):** no B, `windows_no_reaction` pode significar "já no máximo"; as séries permitem separar os dois casos (desejadas = 8 no início da janela). O modo B está funcionando como definido; as métricas já mostram o efeito (`false_scaleups`, `pod_seconds`). Entra na discussão.
 
 **Contra o critério:** pipeline novo funcionando, condição inicial igual nos 3 modos, ciclo p95 < 2,5 s, sem reinício: **atingido**.
 
@@ -343,7 +359,7 @@ Complemento (mesmo cálculo, replay dos 9 CSVs da qualificação, só o atraso d
 - **Correção confirmada:** no B, o "pronto" agora vem depois do "pedido" (47,5 ≥ 40,0 s). Em A e C, sem janela fora do padrão, o valor não mudou.
 - **Nada mais mudou:** as outras métricas das 3 linhas são idênticas às do `hpa_results.csv` original.
 - **Sensibilidade (N = 1):** a 250 ms, a ordem B < C < A é a mesma dos 500 ms. A 1 s quase nada passa em nenhum modo: os picos do burst não chegam a 1 s.
-- Séries de réplicas salvas em `pilotos/piloto5/hpa/series/`, para conferir a leitura do achado 2.
+- Séries de réplicas salvas em `pilotos/piloto5/hpa/series/`; com elas o achado 2 foi confirmado (ver acima).
 
 **Decisão (30/out/2026, Ricardo, antes da Fase 3):** decisão 18 em [DECISOES_METODO.md](DECISOES_METODO.md): `ready_time_s` nas mesmas janelas e depois do pedido; séries de réplicas salvas por execução; `make hpa-recalc`.
 

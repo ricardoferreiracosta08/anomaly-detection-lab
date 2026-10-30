@@ -349,7 +349,7 @@ A qualificação tem o mesmo rabo (o `rampup_run1` dela está vazio depois de ~5
 - `reaction_time_s`: só as janelas em que as réplicas desejadas subiram;
 - `ready_time_s`: qualquer janela em que as **disponíveis** subiram, mesmo sem reação nela.
 
-No piloto, a 2ª janela do B começou com o HPA já escalado: os pods tinham sido pedidos **antes** dela (scale-up contado como falso). Um desses pods ficou pronto logo no início da janela, e esse atraso curto entrou na média do "pronto" sem ter havido reação. O mesmo pode acontecer dentro de uma janela com reação, se um pod pedido antes dela ficar pronto antes do novo pedido.
+No piloto (confirmado depois com as séries de réplicas), o 7º pod do B foi pedido exatamente no início da 2ª janela (305 s), ainda pela cauda de alertas do 1º pico, e ficou pronto aos 310 s. A reação de verdade nessa janela veio aos 350 s (8º pod). O código antigo mediu o "pronto" em 5 s (o pod da cauda), contra uma reação de 45 s. Na 3ª janela, o B já estava no máximo (8 réplicas) e não tinha como reagir. Média antiga do "pronto": (45 + 5)/2 = 25 s. Ou seja, um pod pedido **antes** da reação ficava pronto e entrava na média como se fosse dela.
 
 Segundo ponto: as séries de réplicas (desejadas e disponíveis) **não eram salvas**. O `hpa_results.csv` guarda só o resumo, e o Prometheus apaga tudo depois de 7 dias (`retention.time=7d`). Sem as séries, não daria para rever nem explicar uma métrica depois da Fase 3.
 
