@@ -331,5 +331,19 @@ Complemento (mesmo cálculo, replay dos 9 CSVs da qualificação, só o atraso d
 
 **Contra o critério:** pipeline novo funcionando, condição inicial igual nos 3 modos, ciclo p95 < 2,5 s, sem reinício: **atingido**.
 
+**Recálculo com a decisão 18 e a sensibilidade do SLO (30/out/2026, `make hpa-recalc DIR=pilotos/piloto5/hpa`, mesmos dados do Prometheus):**
+
+| Métrica | A | B | C |
+|---|---|---|---|
+| `ready_time_s` (novo) | 56,7 s (igual) | **47,5 s** (era 25,0) | 43,3 s (igual) |
+| `slo_viol_anom_pct` (500 ms) | 2,2% | 0,5% | 0,6% |
+| `slo_viol_anom_250ms_pct` | 17,0% | 2,5% | 6,7% |
+| `slo_viol_anom_1000ms_pct` | 0,03% | 0,07% | 0,0% |
+
+- **Correção confirmada:** no B, o "pronto" agora vem depois do "pedido" (47,5 ≥ 40,0 s). Em A e C, sem janela fora do padrão, o valor não mudou.
+- **Nada mais mudou:** as outras métricas das 3 linhas são idênticas às do `hpa_results.csv` original.
+- **Sensibilidade (N = 1):** a 250 ms, a ordem B < C < A é a mesma dos 500 ms. A 1 s quase nada passa em nenhum modo: os picos do burst não chegam a 1 s.
+- Séries de réplicas salvas em `pilotos/piloto5/hpa/series/`, para conferir a leitura do achado 2.
+
 **Decisão (30/out/2026, Ricardo, antes da Fase 3):** decisão 18 em [DECISOES_METODO.md](DECISOES_METODO.md): `ready_time_s` nas mesmas janelas e depois do pedido; séries de réplicas salvas por execução; `make hpa-recalc`.
 
