@@ -115,7 +115,7 @@ A ordem das execuções é sorteada. Toda execução começa idêntica. Na Fase 
 
 ## 7. A história dos pilotos: uma investigação 🔍
 
-Cada piloto custa cerca de 1 h. O experimento definitivo custa **cerca de 43 h**. Os pilotos existem para achar defeitos antes.
+Cada piloto custa cerca de 1 h. O experimento definitivo custou **cerca de 51 h** (Fase 1 ~12,6 h + Fase 3 ~38,7 h). Os pilotos existem para achar defeitos antes.
 
 **Piloto 1:**
 - **Achado:** o online sem atraso (replay) acertou mais que o offline em 4 de 5 detectores, mas ao vivo perdeu bastante. Por quê?
@@ -189,7 +189,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 
 **Volume:**
 - **Fase 1:** 30 execuções, 36 condições (6 detectores × 2 formas × 3 cargas), cerca de 11 h.
-- **Fase 3:** 90 execuções, cerca de 35 h.
+- **Fase 3:** 90 execuções, cerca de 35 h estimadas (rodou em ~38,7 h).
 - **Qualificação, para comparar:** era a mesma lógica com N = 3, só offline e 3 detectores.
 
 ---
@@ -244,7 +244,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 **Feito de 30/out a 01/nov/2026: a Fase 3 rodou** (90 execuções). Explicação completa: [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md). Em resumo:
 - o ambiente ficou igual para A, B e C (o p95 do aquecimento, medido antes do tratamento, bate nos três);
 - **métrica principal (tempo de reação): sem diferença** entre os modos, em nenhum cenário;
-- **no burst, o B deixou a app bem mais rápida** para o usuário (p95 nos picos de 422 para 266 ms; requisições acima de 250 ms de 15% para 4%), pagando ~20% mais pods e ~1,5 scale-up falso por execução. Escalar cedo sem detector (C) não teve esse ganho;
+- **no burst, o B deixou a app bem mais rápida** para o usuário (p95 nos picos de 422 para 266 ms; requisições acima de 250 ms de 15% para 4%), pagando ~20% mais pods e ~1,5 scale-up falso por execução. Escalar cedo sem detector (C) não teve esse ganho, mas o C gastou o mesmo que o A, então não dá para separar o efeito do detector do efeito dos pods a mais;
 - o porquê é o que o piloto 5 já tinha mostrado: o B **escala antes** do pico (cauda de alertas do LSTM) e bate no teto de 8 pods; o tempo de reação só conta pedidos feitos **depois** do início do pico, então não enxerga essa antecipação;
 - pelo critério escrito antes, o B **não** venceu. É um resultado nulo na principal, com um ganho real de latência no burst. **Não invalida a pesquisa e não pede nova rodada:** mudar o método agora seria escolher a regra pelo resultado.
 
@@ -264,7 +264,7 @@ Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão: LSTM �
 1. "O HPA reage tarde porque espera a CPU subir; o detector tenta avisar antes."
 2. "O modo C separa o ganho de detectar do ganho de simplesmente ter mais pods."
 3. "O offline não é um teto: avaliar só offline engana sobre o uso real; o detector do HPA é escolhido pelo desempenho ao vivo."
-4. "Os pilotos acharam quatro vieses que teriam invalidado 43 h de experimento."
+4. "Os pilotos acharam quatro vieses que teriam invalidado cerca de 51 h de experimento."
 5. "Toda regra de escolha e de avaliação foi escrita antes de ver os resultados."
 6. "As limitações afetam o valor absoluto, não a comparação entre A, B e C."
 7. "Na métrica principal o resultado foi nulo; no burst, o detector fez o HPA escalar antes e cortou a latência quase à metade, por 20% mais pods."

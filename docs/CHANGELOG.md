@@ -102,6 +102,15 @@
 - `FASE3_EXPLICADA.md`: "Houve um modo melhor?" (nenhum vencedor pela regra; A mais barato, B melhor em latência no burst, C sem ganho) e seção 9a (justificativa do piso 2 e do teto 8, com texto para a dissertação). `DECISOES_METODO.md`, item 9: ameaça "teto do HPA atingido".
 - Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto. Nenhum código mudou.
 
+## Corrigido (01/nov): revisão dos documentos contra a prévia do artigo
+
+- `FASE3_EXPLICADA.md`: retirada a afirmação de que o ganho do B "vem do detector, não só de ter mais pods" (o C gastou o mesmo que o A, não o mesmo que o B; separar os efeitos exige um controle com o custo do B); custo do B no rampup e no shift no veredito; "partindo de cerca de 2 pods" (B 2,6); duração real ~38,7 h.
+- `ESTADO_DO_PROJETO.md`: data do título, duração real da Fase 3, ressalva do throttling como limitação, ordem dos pilotos 4 e 5, passo da VPS marcado como feito.
+- `EXPLICACAO.md`: mesma ressalva sobre o C; duração total real (~51 h: Fase 1 ~12,6 h + Fase 3 ~38,7 h).
+- `FASE1_EXPLICADA.md`: o shift também sobe a quantidade (30 → 50–60 usuários).
+- `.env.example`: a senha do Grafana deixou de ter um valor real (`troque-esta-senha`). O valor antigo está no histórico do git desde o 1º commit; quem usava esse valor deve trocar a senha no `.env` e rodar `make deploy` antes de o repositório ficar público.
+- `FASE3_EXPLICADA.md`: replicações necessárias para H/Ȳ ≤ 20% passam a vir do relatório oficial (`1_IC_hpa.csv`: burst 4–9, rampup 16–79, shift 48–84); os números anteriores (2–8, 18–102, 63–113) tinham sido calculados à mão com outra fórmula.
+
 ## Novo (30/out): sensibilidade do SLO calculada na hora (decisão 8)
 
 - `scripts/hpa_metrics.py`: colunas `slo_viol_anom_250ms_pct` e `slo_viol_anom_1000ms_pct` (% de requisições acima de 250 ms e de 1 s nas janelas anômalas), ao lado do `slo_viol_anom_pct` (500 ms). Os histogramas somem do Prometheus em 7 dias, então a conta é feita em cada execução. Nenhuma outra métrica muda.

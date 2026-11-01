@@ -1,4 +1,4 @@
-# Estado do projeto (18/out/2026)
+# Estado do projeto (01/nov/2026)
 
 > **Resumo.** Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e [PILOTOS.md](PILOTOS.md) (pilotos).
 
@@ -14,7 +14,7 @@ Dissertação de mestrado PPGCC/UFMA, Ricardo F. Costa, orientador Prof. Dr. Má
 |---|---|---|
 | **1. Comparar detectores** | 6 detectores não supervisionados × 3 cargas k6 (burst, rampup, shift) × 10 repetições, **offline e online**; HPA fixo no modo A. Métrica: F1 (e precisão, recall, MTTD) | 30 execuções, ~11 h |
 | **2. Integrar** | detector online no cluster publica `anomaly_level`; o Prometheus Adapter o entrega ao HPA como métrica externa, sem modificar o Kubernetes | — |
-| **3. Avaliar o HPA** | modos **A** (CPU 50%), **B** (CPU 50% + anomalia do detector escolhido na Fase 1), **C** (CPU 35%, controle: escalar cedo sem detector), D opcional; × 3 cargas × 10 rep. Métrica principal pré-registrada: **tempo de reação**; também p95 e % acima do SLO (500 ms) nas anomalias, custo (pod·s), scale-ups falsos | 90 execuções, ~35 h |
+| **3. Avaliar o HPA** | modos **A** (CPU 50%), **B** (CPU 50% + anomalia do detector escolhido na Fase 1), **C** (CPU 35%, controle: escalar cedo sem detector), D opcional; × 3 cargas × 10 rep. Métrica principal pré-registrada: **tempo de reação**; também p95 e % acima do SLO (500 ms) nas anomalias, custo (pod·s), scale-ups falsos | 90 execuções, ~38,7 h (estimadas ~35 h) |
 
 Comparações da Fase 3: **B × A** (o proativo é melhor?), **B × C** (é a detecção ou só mais pods?), **C × A** (escalar cedo basta?).
 
@@ -119,13 +119,13 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 | 1 (Fase 1, burst, N = 1) | online sem atraso (replay) supera o offline em 4 de 5; ao vivo perde ~0,2 de F1, quase tudo em precisão | investigar alarmes falsos |
 | 2 (HPA A × B) | 53–87% de alarmes falsos nos 150 s iniciais (detector aprendia o silêncio entre execuções); B "ganhou" por superprovisionar: +48% de custo, 2 scale-ups falsos, reação indefinida | aquecimento + piso do σ |
 | 3 (A × B × C, com aquecimento) | alarmes iniciais 0–26%; B sem scale-up falso, reagiu 10 s antes do A com +1% de custo; mas B e C com latência pior. Vieses: transiente na troca (alertas 15–45 s), estado da app crescendo (~4.000 itens/pod, viés de ordem), salto de 0,25 MB na memória virando ~50σ | rampas sobrepostas, reinício da app, piso nas entradas |
-| 5 (configuração da Fase 3: só o LSTM, B = LSTM) | pipeline novo ok: `warmup_p95_ms` 4,8–5,0 ms nos 3 modos, espera do fim da janela, ciclo p95 0,05 s; no B, `ready_time_s` (25 s) < `reaction_time_s` (40 s): janelas diferentes nas duas médias; réplicas não eram salvas. Confirmado com as séries: a cauda de alertas do LSTM depois do 1º pico levou o B de 4 a 6 pods com carga normal; ele entrou no 2º pico escalado e ficou no máximo (8) dos 350 aos 630 s; o 3º pico ficou sem reação por teto (+18% de custo) | decisão 18; recálculo feito (`ready_time_s` do B 47,5 s) |
 | 4 (configuração final + LSTM) | condição inicial ok (100 itens, 2 réplicas); ciclo p95 0,48 s; latência de A, B e C comparável de novo (414–539 ms); reação A 48 s, B 42 s, C 38 s; custo B +3%, C +14% (1 scale-up falso, por CPU). Alertas iniciais: A 0 nos 6; B e C 0–30%. Dois tipos de oscilação de latência: logo após a troca (nas 3, sistemático) e num pod só em instantes irregulares (ruído do ambiente) | acomodação de 60 s; tolerância medida: 30 s |
+| 5 (configuração da Fase 3: só o LSTM, B = LSTM) | pipeline novo ok: `warmup_p95_ms` 4,8–5,0 ms nos 3 modos, espera do fim da janela, ciclo p95 0,05 s; no B, `ready_time_s` (25 s) < `reaction_time_s` (40 s): janelas diferentes nas duas médias; réplicas não eram salvas. Confirmado com as séries: a cauda de alertas do LSTM depois do 1º pico levou o B de 4 a 6 pods com carga normal; ele entrou no 2º pico escalado e ficou no máximo (8) dos 350 aos 630 s; o 3º pico ficou sem reação por teto (+18% de custo) | decisão 18; recálculo feito (`ready_time_s` do B 47,5 s) |
 
 - **Piloto 4, hipóteses:** descartadas — réplicas descendo no aquecimento, pod novo somando memória; **improvável, não descartada** — retreino do LSTM (relógio do pod, não do roteiro).
 - **Transbordo de alertas após os picos** (base da tolerância): online ao vivo mediana 10–25 s, p90 ~30 s em EWMA e IF; replay da qualificação p90 25 s; cauda de 72–100 s só nos multivariados (estado do sistema após o escalonamento, não atraso).
 - **Efeito registrado:** a base do EWMA offline (primeiros 150 s) inclui a oscilação da troca; possível limiar um pouco mais largo (sem correção: parâmetros da qualificação).
-- **Ressalva:** a causa do 2º tipo de oscilação não foi verificada; se for throttling de CPU (limite 300m), pode depender do nº de pods e afetar os modos de forma diferente na Fase 3. Verificar antes da Fase 3.
+- **Ressalva:** a causa do 2º tipo de oscilação não foi verificada; se for throttling de CPU (limite 300m), pode depender do nº de pods e afetar os modos de forma diferente na Fase 3. Não foi verificada antes da Fase 3: fica como limitação (o equilíbrio do `warmup_p95_ms` entre A, B e C não mostrou efeito).
 
 ## 8. Comandos principais
 
@@ -141,7 +141,7 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 
 ## 10. Próximos passos
 
-1. **Na VPS:** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (22 testes).
+1. **Na VPS (feito):** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (22 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
 3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,485 no corrigido, que é o principal pela decisão 17; 0,476 "como rodou"; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
 4. **Piloto 5** (30/out/2026): pipeline ok; gerou a decisão 18 e foi recalculado.

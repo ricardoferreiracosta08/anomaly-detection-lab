@@ -18,7 +18,7 @@ O "estranho" são 3 tipos de carga, que se repetem 10 vezes cada (30 execuções
 |---|---|---|
 | **burst** | 3 picos curtos e fortes de usuários | um ônibus de turistas chega de repente |
 | **rampup** | degraus de carga cada vez maiores | a fila cresce aos poucos, em saltos |
-| **shift** | muda o **tipo** de pedido, quase sem mudar a quantidade | os clientes param de olhar e começam a pedir coisas difíceis |
+| **shift** | muda o **tipo** de pedido; a quantidade sobe pouco (de 30 para 50–60 usuários, ver seção 5) | os clientes param de olhar e começam a pedir coisas difíceis |
 
 Cada execução tem um **gabarito** (`ANOMALY_PHASES`): os segundos em que existe anomalia (as faixas vermelhas dos gráficos). O gabarito vem da qualificação e **nunca muda**.
 

@@ -16,7 +16,7 @@ Três comparações planejadas, por cenário: **B × A** (o detector ajuda?), **
 
 ## 2. Como rodou
 
-- 90 execuções (3 modos × 3 cenários × 10 repetições), de **30/out 18h19 a 01/nov ~08h50** (horário de Brasília), na VPS, em blocos por repetição com ordem sorteada (decisão 14).
+- 90 execuções (3 modos × 3 cenários × 10 repetições), de **30/out 18h19 a 01/nov 08h54** (horário de Brasília; ~38,7 h, contra ~35 h estimadas), na VPS, em blocos por repetição com ordem sorteada (decisão 14).
 - Detector: só o LSTM, rodando **igual nos três modos**; o modo só muda quem ouve o alarme.
 - Uma falha logo no início: a pasta `datasets_hpa/` tinha ficado com dono root e a 1ª tentativa do `B_shift_run1` não conseguiu gravar o CSV. A execução não foi marcada como feita, a pasta foi corrigida e o `B_shift_run1` rodou de novo do zero. Nenhum dado foi aproveitado da tentativa que falhou (a linha dela no `warmup_log.csv` fica de fora da análise).
 - Todas as 90 têm resumo do k6, série de réplicas e linha no `hpa_results.csv`.
@@ -69,7 +69,7 @@ O que isso mostra:
 1. **O B escala antes do pico.** Depois de cada pico, o LSTM continua alertando por um tempo (a "cauda" já vista nos pilotos 4 e 5), e o B segue pedindo pods com a carga normal. Ele entra no pico seguinte já escalado.
 2. **O tempo de reação não enxerga isso.** Ele só conta pedidos feitos **depois** do início do pico. Um pod pedido antes não conta como "reação rápida"; conta como nada.
 3. **O teto de 8 pods (`maxReplicas`) corta a comparação.** Quando o B (e, no rampup, também o C) já está no máximo, não há pedido a fazer, e aquele pico sai da média. Assim, a média de cada modo vem de **picos diferentes**: no rampup, B e C só têm o 1º degrau; o A tem mais.
-4. **O único pico comparável de igual para igual** é o 1º do burst (os três reagem nas 10 execuções, partindo de 2 pods): A 43 s, B 38 s, C 44 s. Diferença pequena.
+4. **O único pico comparável de igual para igual** é o 1º do burst (os três reagem nas 10 execuções, partindo de cerca de 2 pods: A e C 2,0; B 2,6): A 43 s, B 38 s, C 44 s. Diferença pequena.
 
 ![burst: réplicas e latência](figs/fase3/02_replicas_latencia_burst.png)
 
@@ -108,8 +108,8 @@ Critério ([HPA.md](HPA.md)): **"B é melhor se reduz o tempo de reação e a vi
 **O critério não foi atendido.** O que a Fase 3 mostra:
 
 - **Negativo:** acoplar o LSTM ao HPA **não** fez o HPA reagir mais rápido depois do início do pico.
-- **Positivo, com custo:** no burst, o B **antecipou** a escala (por causa da cauda de alertas) e reduziu muito a latência sentida pelo usuário, gastando ~20% mais pods e gerando scale-ups falsos. Escalar cedo sem detector (C) **não** obteve esse ganho.
-- **Neutro:** em cargas graduais (rampup) e de mudança de tipo (shift), o detector não mudou a latência.
+- **Positivo, com custo:** no burst, o B **antecipou** a escala (por causa da cauda de alertas) e reduziu muito a latência sentida pelo usuário, gastando ~20% mais pods e gerando scale-ups falsos. Escalar cedo sem detector (C) **não** obteve esse ganho, mas o C também gastou o mesmo que o A, e não o mesmo que o B. Por isso, a Fase 3 **não** permite dizer se o ganho veio do sinal do detector ou só dos pods a mais.
+- **Sem ganho, com custo:** em cargas graduais (rampup) e de mudança de tipo (shift), o detector não mudou a latência, e o B custou mais que o A (rampup +8%, shift +31%), igual ao C.
 
 ### Houve um modo melhor? A, B ou C
 
@@ -140,7 +140,7 @@ Entre A e B, a escolha depende de quanto vale latência contra pods: é um **com
 
 ## 9. Limitações a declarar
 
-- **Variação alta do tempo de reação.** Replicações necessárias para H/Ȳ ≤ 20%: burst 2–8; rampup 18–102; shift 63–113. Com N = 10, rampup e shift não têm poder para detectar diferenças pequenas.
+- **Variação alta do tempo de reação.** Replicações necessárias para H/Ȳ ≤ 20% (coluna `r_para_HY_20pct` do `results/stats/phase3/1_IC_hpa.csv`): burst 4–9; rampup 16–79; shift 48–84. Com N = 10, rampup e shift não têm poder para detectar diferenças pequenas.
 - **Teto de 8 réplicas** (fixado antes, não alterado): tira picos da média e impede a comparação nos últimos picos do burst (B) e nos degraus 2–4 do rampup (B e C). Por que 2 e 8: ver a seção 9a.
 - **Tempo de reação definido como pedido depois do início do pico:** não capta antecipação.
 - **Normalidade:** Shapiro-Wilk com p < 0,05 em várias células (ex.: tempo de reação no rampup B, p = 0,002). O t de Student é robusto com N = 10 por grupo, mas isso fica declarado.
@@ -162,7 +162,7 @@ Texto para a dissertação:
 
 1. "Na métrica principal, o resultado foi nulo: o detector não fez o HPA reagir mais rápido."
 2. "Mas no burst o detector fez o HPA escalar antes do pico e reduziu a latência do usuário quase à metade, ao custo de 20% mais pods."
-3. "Escalar cedo sem detector (modo C) não teve esse ganho: o efeito vem do sinal do detector, não só de ter mais pods."
+3. "Escalar cedo pela CPU (modo C) não teve esse ganho; mas, como o C não gastou o mesmo que o B, não dá para separar o efeito do detector do efeito dos pods a mais. Isso pede um controle com o mesmo custo do B."
 4. "O tempo de reação, como foi definido antes, não enxerga a antecipação, e o teto de 8 pods tira picos da comparação; isso é limitação declarada e trabalho futuro, não algo a corrigir depois de ver os dados."
 5. "O ambiente ficou equilibrado entre os modos: o p95 do aquecimento, medido antes do tratamento, é igual em A, B e C."
 6. "Não há um modo vencedor: A é o mais barato, B compra latência no burst com pods, e C custa mais sem ganho."
