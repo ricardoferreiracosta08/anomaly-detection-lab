@@ -318,6 +318,8 @@ Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 8 e 14 a 18.
 5. **Piloto 5** (feito em 30/out): a configuração da Fase 3 funcionou; gerou a decisão 18 ([PILOTOS.md](PILOTOS.md)). Na VPS: `git pull`, `make build-analysis`, `make selftest` (22 testes) e `make hpa-recalc DIR=pilotos/piloto5/hpa` antes de ~06/nov.
 6. `make hpa-experiment` (~35 h).
 
+> **Atualização (01/nov/2026):** a Fase 3 rodou (30/out a 01/nov). Resultado em [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md).
+
 ---
 
 ## 11. Frases prontas para a reunião e a banca

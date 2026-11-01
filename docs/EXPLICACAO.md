@@ -218,6 +218,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 | No rampup e no shift, os detectores alarmam antes da 1ª anomalia (achado da Fase 1) | o roteiro sobe a carga na parte que o gabarito chama de normal; vale igual para todos os detectores, e o gabarito da qualificação não muda ([FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5) |
 | O fim de cada CSV da Fase 1 tem pontos que repetem o último valor (achado da Fase 1) | é igual na qualificação. A avaliação passou a ir só até o fim do k6 + 15 s, e esse número corrigido é o principal; o LSTM continua escolhido (decisão 17). Na Fase 3, o script espera o fim da janela antes de exportar (decisão 16) |
 | O shift já começa com 3–7 pods (achado da Fase 1) | vale igual para A, B e C. O tempo de reação conta só os picos em que o HPA precisou escalar, e os outros são mostrados ao lado (decisão 15) |
+| O teto de 8 pods foi atingido (achado da Fase 3: B no burst; B e C no rampup) | os limites 2 e 8 vêm da qualificação e são os mesmos nos três modos; 8 pods (2,4 núcleos) cabem nos 6 núcleos do cluster sem disputa de CPU. O efeito (picos sem reação, fora da média) é declarado; teto maior só como experimento à parte ([FASE3_EXPLICADA.md](FASE3_EXPLICADA.md), seção 9a) |
 
 ---
 
@@ -240,19 +241,25 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 - ele mostrou o "pronto antes do pedido" e que as réplicas não eram salvas → decisão 18;
 - a sensibilidade do SLO (250 ms e 1 s) passou a ser calculada em cada execução (decisão 8).
 
+**Feito de 30/out a 01/nov/2026: a Fase 3 rodou** (90 execuções). Explicação completa: [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md). Em resumo:
+- o ambiente ficou igual para A, B e C (o p95 do aquecimento, medido antes do tratamento, bate nos três);
+- **métrica principal (tempo de reação): sem diferença** entre os modos, em nenhum cenário;
+- **no burst, o B deixou a app bem mais rápida** para o usuário (p95 nos picos de 422 para 266 ms; requisições acima de 250 ms de 15% para 4%), pagando ~20% mais pods e ~1,5 scale-up falso por execução. Escalar cedo sem detector (C) não teve esse ganho;
+- o porquê é o que o piloto 5 já tinha mostrado: o B **escala antes** do pico (cauda de alertas do LSTM) e bate no teto de 8 pods; o tempo de reação só conta pedidos feitos **depois** do início do pico, então não enxerga essa antecipação;
+- pelo critério escrito antes, o B **não** venceu. É um resultado nulo na principal, com um ganho real de latência no burst. **Não invalida a pesquisa e não pede nova rodada:** mudar o método agora seria escolher a regra pelo resultado.
+
 **Falta:**
-1. Na VPS: `git pull`, `make build-analysis`, `make selftest` e `make hpa-recalc DIR=pilotos/piloto5/hpa` (antes de ~06/nov).
-2. Confirmar com o orientador as decisões 14 a 18 e o ajuste do SLO para 250 ms.
-3. Diagnosticar de onde vem a lentidão do dia, só olhando (o modo D não será usado: a Fase 3 compara só A, B e C).
-4. **Rodar a Fase 3** (~35 h), analisar e escrever.
+1. Levar o resultado ao orientador e confirmar com ele as decisões 14 a 18 e o ajuste do SLO para 250 ms.
+2. Escrever: resultado, limitações (teto de 8 pods, definição do tempo de reação, poucas execuções para a variação do rampup e do shift) e trabalhos futuros.
+3. Opcional, até ~05/nov: olhar no Grafana de onde veio a lentidão do dia na Fase 1.
 
 ```
-Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão: LSTM ✅ → piloto 5 ✅ → Fase 3 (~35 h) → análise e escrita
+Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão: LSTM ✅ → piloto 5 ✅ → Fase 3 ✅ → escrita
 ```
 
 ---
 
-## As 6 frases para você saber dizer
+## As 7 frases para você saber dizer
 
 1. "O HPA reage tarde porque espera a CPU subir; o detector tenta avisar antes."
 2. "O modo C separa o ganho de detectar do ganho de simplesmente ter mais pods."
@@ -260,3 +267,4 @@ Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão: LSTM �
 4. "Os pilotos acharam quatro vieses que teriam invalidado 43 h de experimento."
 5. "Toda regra de escolha e de avaliação foi escrita antes de ver os resultados."
 6. "As limitações afetam o valor absoluto, não a comparação entre A, B e C."
+7. "Na métrica principal o resultado foi nulo; no burst, o detector fez o HPA escalar antes e cortou a latência quase à metade, por 20% mais pods."

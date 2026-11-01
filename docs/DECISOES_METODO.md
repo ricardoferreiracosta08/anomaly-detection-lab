@@ -191,6 +191,13 @@ Os dois ficam fixados aqui antes da Fase 3. Durante a Fase 3 não se muda o dete
 - **alertas na "fase normal" que sobe:** no rampup e no shift, o roteiro aumenta a carga antes da 1ª anomalia do gabarito. O rampup vai de 10 para 40 e depois 65 usuários ("degraus 1 e 2"), e o shift de 30 para 50. Os detectores online alarmam em 57–99% desses pontos (exceto o EWMA), contra 5–19% no burst, cujo roteiro fica no nível do aquecimento. Isso baixa a precisão online nesses cenários, igual para todos os detectores. Na Fase 3, o B pode escalar antes da 1ª anomalia (`false_scaleups`). Gabarito, roteiros e aquecimento não mudam. Os pilotos 3 e 4, que validaram "alertas iniciais perto de 0%", foram só com burst. Detalhes: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md), seção 5;
 - **pontos-fantasma no fim do CSV:** a janela exportada passa do fim do k6, e os últimos pontos repetem o último valor dos gauges, inclusive alertas (até 23% do CSV no rampup). Igual à qualificação. Sensibilidade: o LSTM continua escolhido (item 16).
 
+**Acrescentada em 01/nov/2026, depois da Fase 3** (achado; nada mudou no método):
+- **teto do HPA atingido:** os limites `minReplicas=2` e `maxReplicas=8` ([hpa-cpu.yaml](../k8s/hpa/hpa-cpu.yaml), [hpa-anomaly.yaml](../k8s/hpa/hpa-anomaly.yaml)) vêm da qualificação (abr/2026) e foram mantidos por comparabilidade; não foram escolhidos pensando na Fase 3. Justificativa técnica:
+  - piso 2: sem ponto único de falha, balanceamento desde o início e a mesma condição inicial em todas as execuções;
+  - teto 8: 8 × 300m (limite de CPU por pod) = 2,4 núcleos, dentro dos 6 núcleos do cluster (`CLUSTER_CPUS`), com folga para o detector (0,5), o monitoramento e o k3s, sem disputa de CPU que confundiria a latência; e representa o limite de custo que todo HPA em produção tem.
+
+  Efeito: o teto foi atingido pelo B no burst (antes do 3º pico, em 10/10; antes do 2º, em 3/10) e por B e C no rampup (do 2º degrau em diante); esses picos ficam sem reação e saem da média do tempo de reação. Declarado como limitação; teto maior só como experimento complementar, pré-registrado à parte. Detalhes: [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md), seções 5 e 9.
+
 ### 10. Forma do IC
 
 **Situação.** O `stats_tlc.py` usa Ȳ ± t·S/√N. Um exemplo do material usa a forma t·S, que está guardada na coluna `H_tDP` para comparação.

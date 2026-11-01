@@ -95,6 +95,13 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (01/nov): resultado da Fase 3 documentado
+
+- `docs/FASE3_EXPLICADA.md`: explicação didática da Fase 3 definitiva (90 execuções, 30/out a 01/nov/2026). Inclui: equilíbrio do ambiente (decisão 14), tempo de reação (sem diferença significativa), secundárias (no burst, o B reduz o p95 e o SLO com +20% de pod·s), veredito pelo critério pré-registrado (não atendido), análise **exploratória** das réplicas no início de cada pico (antecipação do B e teto de 8 pods), limitações e por que não refazer nenhuma fase.
+- `docs/figs/fase3/`: figuras geradas a partir do backup (equilíbrio do aquecimento, réplicas e latência por cenário, métricas por execução, uma execução de exemplo). Script e figuras completas no backup do notebook (`VPS/FASE 3/graficos_fase3/`); nenhuma métrica nova, só leitura dos dados.
+- `FASE3_EXPLICADA.md`: "Houve um modo melhor?" (nenhum vencedor pela regra; A mais barato, B melhor em latência no burst, C sem ganho) e seção 9a (justificativa do piso 2 e do teto 8, com texto para a dissertação). `DECISOES_METODO.md`, item 9: ameaça "teto do HPA atingido".
+- Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto. Nenhum código mudou.
+
 ## Novo (30/out): sensibilidade do SLO calculada na hora (decisão 8)
 
 - `scripts/hpa_metrics.py`: colunas `slo_viol_anom_250ms_pct` e `slo_viol_anom_1000ms_pct` (% de requisições acima de 250 ms e de 1 s nas janelas anômalas), ao lado do `slo_viol_anom_pct` (500 ms). Os histogramas somem do Prometheus em 7 dias, então a conta é feita em cada execução. Nenhuma outra métrica muda.
