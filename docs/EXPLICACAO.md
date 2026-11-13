@@ -1,6 +1,6 @@
-# O projeto explicado (para conversar sobre ele)
+# O projeto explicado
 
-> **Explicação didática.** Serve para você conseguir explicar cada parte com as suas palavras, na reunião e na banca. O resultado da Fase 1 e a estatística passo a passo estão em [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e [PILOTOS.md](PILOTOS.md) (pilotos). O mapa técnico é o [ESTADO_DO_PROJETO.md](ESTADO_DO_PROJETO.md).
+> **Explicação didática do projeto.** O resultado da Fase 1 e a estatística passo a passo estão em [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e [PILOTOS.md](PILOTOS.md) (pilotos). O mapa técnico é o [ESTADO_DO_PROJETO.md](ESTADO_DO_PROJETO.md).
 
 ---
 
@@ -36,9 +36,9 @@ Tudo roda numa VPS, dentro de containers:
 - **Prometheus:** anota a cada 5 s quatro sinais (latência, CPU, memória e requisições por segundo).
 - **Detector online:** lê esses sinais e decide "normal ou anômalo".
 - **Prometheus Adapter:** entrega o nível de anomalia ao HPA.
-- **Grafana:** a tela para você acompanhar.
+- **Grafana:** a tela para acompanhar.
 
-O **gabarito** (ground truth) é a lista de quando cada pico começa e termina. Ele é conhecido porque você escreveu os roteiros, e é com ele que se confere se o detector acertou.
+O **gabarito** (ground truth) é a lista de quando cada pico começa e termina. Ele é conhecido porque os roteiros de carga foram escritos com esses tempos, e é com ele que se confere se o detector acertou.
 
 ---
 
@@ -200,7 +200,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 2. **Empate:** se outros não forem estatisticamente diferentes dele em **nenhuma** carga, formam um "grupo de empate". Dentro do grupo, vence **o que detecta mais rápido**, porque detectar antes é escalar antes.
 3. Na Fase 3, só ele roda, **igual nos modos A, B e C**, para o custo do detector não pesar só num modo.
 
-**Por que escrever antes:** se você escolhesse depois de ver os resultados, poderia (sem querer) escolher o que favorece a sua hipótese. Isso é o **pré-registro**, a sua maior proteção na banca. O relatório da Fase 1 aplica a regra sozinho e escreve o vencedor.
+**Por que escrever antes:** se você escolhesse depois de ver os resultados, poderia (sem querer) escolher o que favorece a sua hipótese. Isso é o **pré-registro**, a principal proteção contra esse viés. O relatório da Fase 1 aplica a regra sozinho e escreve o vencedor.
 
 ---
 
@@ -222,7 +222,7 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 
 ---
 
-## 12. Onde você está agora 📍
+## 12. Estado atual 📍
 
 **Pronto:**
 - o laboratório inteiro;
@@ -248,23 +248,6 @@ O resultado mais valioso dos pilotos não são os números (N = 1 não prova nad
 - o porquê é o que o piloto 5 já tinha mostrado: o B **escala antes** do pico (cauda de alertas do LSTM) e bate no teto de 8 pods; o tempo de reação só conta pedidos feitos **depois** do início do pico, então não enxerga essa antecipação;
 - pelo critério escrito antes, o B **não** venceu. É um resultado nulo na principal, com um ganho real de latência no burst. **Não invalida a pesquisa e não pede nova rodada:** mudar o método agora seria escolher a regra pelo resultado.
 
-**Falta:**
-1. Levar o resultado ao orientador e confirmar com ele as decisões 14 a 18 e o ajuste do SLO para 250 ms.
-2. Escrever: resultado, limitações (teto de 8 pods, definição do tempo de reação, poucas execuções para a variação do rampup e do shift) e trabalhos futuros.
-3. Opcional, até ~05/nov: olhar no Grafana de onde veio a lentidão do dia na Fase 1.
-
 ```
 Pilotos 1–4 ✅ → decisões fechadas ✅ → Fase 1 ✅ → campeão: LSTM ✅ → piloto 5 ✅ → Fase 3 ✅ → escrita
 ```
-
----
-
-## As 7 frases para você saber dizer
-
-1. "O HPA reage tarde porque espera a CPU subir; o detector tenta avisar antes."
-2. "O modo C separa o ganho de detectar do ganho de simplesmente ter mais pods."
-3. "O offline não é um teto: avaliar só offline engana sobre o uso real; o detector do HPA é escolhido pelo desempenho ao vivo."
-4. "Os pilotos acharam quatro vieses que teriam invalidado cerca de 51 h de experimento."
-5. "Toda regra de escolha e de avaliação foi escrita antes de ver os resultados."
-6. "As limitações afetam o valor absoluto, não a comparação entre A, B e C."
-7. "Na métrica principal o resultado foi nulo; no burst, o detector fez o HPA escalar antes e cortou a latência quase à metade, por 20% mais pods."

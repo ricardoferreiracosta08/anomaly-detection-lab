@@ -23,3 +23,10 @@ __pycache__/
 # Sistema
 .DS_Store
 *.log
+
+# Backups e pacotes (ficam fora do repositório)
+*.tgz
+*.tar.gz
+*.zip
+backup_*
+ARTIGO/

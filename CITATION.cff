@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "Se usar este software ou os dados, cite o artigo abaixo."
+title: "Anomaly Detection Lab: Kubernetes"
+type: software
+license: MIT
+repository-code: "https://github.com/ricardoferreiracosta08/anomaly-detection-lab"
+authors:
+  - family-names: "Costa"
+    given-names: "Ricardo Ferreira"
+    affiliation: "Universidade Federal do Maranhão (UFMA)"
+  - family-names: "Teixeira"
+    given-names: "Mário A. M."
+    affiliation: "Universidade Federal do Maranhão (UFMA)"
+# TODO antes de publicar: acrescentar "doi:" com o DOI do Zenodo dos dados
+preferred-citation:
+  type: conference-paper
+  title: "Avaliação Experimental de Detectores de Anomalias Baseados em Observabilidade Contínua para o Autoescalonamento Horizontal no Kubernetes"
+  authors:
+    - family-names: "Costa"
+      given-names: "Ricardo Ferreira"
+    - family-names: "Teixeira"
+      given-names: "Mário A. M."
+  conference:
+    name: "Simpósio Brasileiro de Redes de Computadores e Sistemas Distribuídos (SBRC 2027)"
+  year: 2027

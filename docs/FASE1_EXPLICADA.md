@@ -1,6 +1,6 @@
 # A Fase 1 explicada
 
-> **Explicação didática da Fase 1 definitiva** (29/out/2026): o que aconteceu, o que os números querem dizer e o que falta antes da Fase 3. Serve para a reunião com o orientador e para a banca. Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e o relatório gerado `results/stats/phase1/relatorio.md` (números). Todos os números daqui saem desse relatório, do `results/detection_results.csv` e dos 30 CSVs reais da Fase 1.
+> **Explicação didática da Fase 1 definitiva** (29/out/2026): o que aconteceu, o que os números querem dizer e como a Fase 3 foi preparada. Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e o relatório gerado `results/stats/phase1/relatorio.md` (números). Todos os números daqui saem desse relatório, do `results/detection_results.csv` e dos 30 CSVs reais da Fase 1.
 
 ## 0. Em uma frase
 
@@ -84,7 +84,7 @@ A ordem é a mesma nos dois. O corte só mexe no rampup e no shift (o burst não
 ### Por que comparar
 
 1. **É o achado, e é o motivo mais forte.** Neste protocolo, o ranking offline **não previu** o online: no offline o melhor foi o EWMA (0,31) e o LSTM ficou em 4º de 6 (0,17); ao vivo, o EWMA foi o último e o LSTM o primeiro. Quem escolhesse o detector só pela avaliação offline teria escolhido outro.
-2. **Continuidade com a qualificação.** Ela foi toda offline. Sem o offline, a banca não vê o que mudou ao passar para o uso real.
+2. **Continuidade com a qualificação.** Ela foi toda offline. Sem o offline, não se vê o que mudou ao passar para o uso real.
 3. (Uso possível, não testado) a análise depois de um incidente, com o dia inteiro na mão.
 
 **Os números (teste pareado, 18 comparações: 6 detectores × 3 cenários):**
@@ -307,7 +307,7 @@ Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 8 e 14 a 18.
 
 ---
 
-## 10. O que falta antes da Fase 3
+## 10. Preparação da Fase 3 (feita)
 
 1. **Backup** de `results/` e `datasets/` fora da VPS (feito no notebook em 29/out).
 2. **Fixar o B:** `HPA_B_DETECTOR=LSTM` e `DETECTOR_ALGOS=LSTM` no `.env` da VPS; `git pull`; `make build-analysis`; `make selftest`; `make detector-deploy`.
@@ -319,13 +319,3 @@ Detalhes e motivos: [DECISOES_METODO.md](DECISOES_METODO.md), itens 8 e 14 a 18.
 6. `make hpa-experiment` (~35 h).
 
 > **Atualização (01/nov/2026):** a Fase 3 rodou (30/out a 01/nov). Resultado em [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md).
-
----
-
-## 11. Frases prontas para a reunião e a banca
-
-1. "Os 6 detectores viram as mesmas 30 execuções ao vivo. O LSTM teve o melhor F1 médio (0,485) e o menor tempo de detecção (11,6 s), e a regra escrita antes dos dados o escolheu."
-2. "Neste protocolo, o ranking offline não previu o online: em 14 de 18 comparações o online foi significativamente melhor, e o melhor offline (EWMA) foi o pior online."
-3. "O IF foi melhor no burst, com diferença significativa; o LSTM venceu no conjunto porque não cai no shift."
-4. "A VPS ficou mais lenta de dia. Na Fase 1 isso não afeta a comparação, porque o teste é pareado. Na Fase 3, os modos rodam misturados em blocos sorteados e a lentidão é medida para mostrar o equilíbrio."
-5. "No rampup e no shift, os detectores alarmam quando a carga sobe na parte que o gabarito chama de normal. É um limite do gabarito herdado da qualificação, igual para todos, e foi registrado, não corrigido."

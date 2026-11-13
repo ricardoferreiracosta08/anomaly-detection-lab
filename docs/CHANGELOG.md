@@ -61,7 +61,7 @@
   - **Fase 3: aquecimento sempre no modo A.** Espera, cooldown e aquecimento rodam com o HPA no modo A; o modo da execução (B, C ou D) só é aplicado depois da conferência das réplicas, imediatamente antes do roteiro. Antes, o modo era aplicado no início: um alarme na passagem "parado → aquecimento" faria o B escalar antes do roteiro e começar com mais réplicas que A e C. Agora toda execução começa com 2 réplicas, em qualquer modo (mesma condição inicial). O `warmup_log.csv` registra também o `anomaly_level` do detector do B ao fim do aquecimento (`b_detector`, `anomaly_level_b`, lido pelo Adapter como o HPA o veria);
   - custo: +330 s por execução. Com REPS=10: Fase 1 = 30 execuções ≈ **+2,75 h**; Fase 3 (A, B, C) = 90 execuções ≈ **+8,25 h**.
 - **Piso relativo do σ** no detector online (`DETECTOR_SIGMA_FLOOR`, padrão 0,05; `0` = comportamento antigo): no `_zratio`, σ_ef = máx(σ, piso·|μ|). Vale para IF, LOF e AE (EWMA e DBSCAN não usam essa razão). Passado ao ConfigMap (`make detector-config`, entra no hash do pod) e ao `make online-replay`.
-  - **Validação** (replay dos 9 CSVs da qualificação, [validacao/piso_sigma.csv](validacao/piso_sigma.csv)): com piso 0 o replay reproduz exatamente o `results_qualificacao/online_replay_K2.csv` (45/45); com 0,05 o F1 médio é **idêntico** em 14 de 15 combinações e o LOF varia ±0,005. O piso não custa F1 em regime com carga; o efeito dele só aparece com o cluster ocioso (σ ≈ 0), que esses CSVs não têm. **Decidido: 0,05** (16/out). Motivo: no regime com carga não muda o F1, e com o cluster quase ocioso impede as razões de ~10⁵ do piloto 2; proteção sem custo medido. Registrado no regras do projeto e como padrão no `.env.example`.
+  - **Validação** (replay dos 9 CSVs da qualificação, [validacao/piso_sigma.csv](validacao/piso_sigma.csv)): com piso 0 o replay reproduz exatamente o `results_qualificacao/online_replay_K2.csv` (45/45); com 0,05 o F1 médio é **idêntico** em 14 de 15 combinações e o LOF varia ±0,005. O piso não custa F1 em regime com carga; o efeito dele só aparece com o cluster ocioso (σ ≈ 0), que esses CSVs não têm. **Decidido: 0,05** (16/out). Motivo: no regime com carga não muda o F1, e com o cluster quase ocioso impede as razões de ~10⁵ do piloto 2; proteção sem custo medido. Registrado como padrão no `.env.example`.
 - **`make check-inicio DIR=…`** (`scripts/check_inicio.py`, novo): conta, por CSV e por detector, os alertas `online_*` antes da 1ª janela anômala do cenário (lida de `ANOMALY_PHASES`, não fixa em 150 s). Verificação permanente do problema.
 - **`make selftest`:** `test_sigma_floor` (referência constante + 2% → alarma sem piso, não alarma com piso; 50% alarma nos dois; o exemplo numérico da documentação) e `test_check_inicio`. Agora 9 testes.
 - **Escopo do detector online:** avaliado **em regime** (referência com carga normal); a partida a frio (pod recém-criado ou cluster vindo do zero) fica fora do escopo.
@@ -95,12 +95,24 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (12/nov): scripts da análise exploratória da Fase 3
+
+- `scripts/analise_exploratoria.py`: réplicas pedidas no início de cada anomalia e janelas iniciadas no teto (8), a partir de `results/hpa/series/`. Descritiva, feita depois dos resultados. Uso: `python3 scripts/analise_exploratoria.py <results/hpa/series>`.
+- `scripts/gerar_figuras.py`: as duas figuras do artigo, `fase1_f1.pdf` (F1 por detector e cenário, online × offline, IC 95%, do `1_IC_detectores.csv` corrigido) e `fase3_replicas.pdf` (réplicas pedidas e latência p95 médias por modo). Uso: `python3 scripts/gerar_figuras.py --ic-fase1 <stats/phase1/1_IC_detectores.csv> --fase3 <pasta com results/ e datasets_hpa/> --saida <pasta>`. Conferido: com `SOURCE_DATE_EPOCH` fixo, a figura da Fase 3 sai idêntica byte a byte à versão anterior; os valores da Fase 1 batem com o CSV.
+- Conferidos contra o backup da Fase 3 (01/nov): reproduzem os números da `FASE3_EXPLICADA.md` (janelas no teto: burst 0/13/0 de 30, rampup 19/30/30 de 40, shift 3/15/18 de 30 para A/B/C); gabarito igual ao `ANOMALY_PHASES`.
+- Regras locais de trabalho saíram do repositório.
+- Docs sem trechos pessoais e sem planejamento: `EXPLICACAO.md` (seção 12 vira "Estado atual"; saem a lista "Falta" e as frases-resumo), `FASE1_EXPLICADA.md` e `FASE3_EXPLICADA.md` (saem as frases-resumo e o caminho do backup), `ESTADO_DO_PROJETO.md` (seção 10 vira "Situação"; sai o item "Agora"). Números e decisões técnicas não mudaram.
+- `LICENSE` (MIT), `CITATION.cff` (validado com cffconvert; DOI do Zenodo a preencher), seção "Artigo e dados" no README e `.gitignore` para backups e pacotes (`*.tgz`, `*.tar.gz`, `*.zip`, `backup_*`, `ARTIGO/`).
+- Saíram do repositório notas pessoais e material de apresentação (`docs/historico/README_2.md`, `beamer_overleaf_v2/`, `docs/GIT.md`); guardados fora dele. O README deixou de apontar para o `GIT.md`.
+- `RUNBOOK_VPS_VPN.md` e `GRAFANA.md`: o IP da VPN e o usuário dos exemplos viraram `<IP_DA_VPN>` e `<usuario>@`.
+- `.env.example`: `HPA_B_DETECTOR=LSTM` (o escolhido pela regra pré-registrada e usado na Fase 3; antes trazia `IF`, o padrão antigo) e nota de que a Fase 3 rodou com `DETECTOR_ALGOS=LSTM`.
+
 ## Novo (01/nov): resultado da Fase 3 documentado
 
 - `docs/FASE3_EXPLICADA.md`: explicação didática da Fase 3 definitiva (90 execuções, 30/out a 01/nov/2026). Inclui: equilíbrio do ambiente (decisão 14), tempo de reação (sem diferença significativa), secundárias (no burst, o B reduz o p95 e o SLO com +20% de pod·s), veredito pelo critério pré-registrado (não atendido), análise **exploratória** das réplicas no início de cada pico (antecipação do B e teto de 8 pods), limitações e por que não refazer nenhuma fase.
 - `docs/figs/fase3/`: figuras geradas a partir do backup (equilíbrio do aquecimento, réplicas e latência por cenário, métricas por execução, uma execução de exemplo). Script e figuras completas no backup do notebook (`VPS/FASE 3/graficos_fase3/`); nenhuma métrica nova, só leitura dos dados.
 - `FASE3_EXPLICADA.md`: "Houve um modo melhor?" (nenhum vencedor pela regra; A mais barato, B melhor em latência no burst, C sem ganho) e seção 9a (justificativa do piso 2 e do teto 8, com texto para a dissertação). `DECISOES_METODO.md`, item 9: ameaça "teto do HPA atingido".
-- Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto. Nenhum código mudou.
+- Atualizados `ESTADO_DO_PROJETO.md` e `EXPLICACAO.md`. Nenhum código mudou.
 
 ## Corrigido (01/nov): revisão dos documentos contra a prévia do artigo
 
@@ -118,7 +130,7 @@
 - `SLO_SENSITIVITY_SECONDS=0.25,1` no `.env.example`, no `Makefile` (também passado ao `ANALYSIS_RUN`, com o `SLO_SECONDS`) e no `bin/experiment.sh`.
 - `scripts/stats_tlc.py`: o relatório da Fase 3 traz as colunas de sensibilidade logo depois do SLO principal.
 - `make selftest`: `test_slo_sensitivity`. Agora são 22 testes.
-- Atualizados `HPA.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `FASE1_EXPLICADA.md` e regras do projeto.
+- Atualizados `HPA.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e `FASE1_EXPLICADA.md`.
 
 ## Novo (30/out, depois do piloto 5): tempo até pronto e séries de réplicas (decisão 18)
 
@@ -130,7 +142,7 @@
 - `Makefile`: `make hpa-recalc DIR=<pasta>` (não sobrescreve; grava `hpa_results_recalc.csv` e `series/`). `ANALYSIS_RUN` aceita volumes extras (`ANALYSIS_VOLS`).
 - `make selftest`: caso novo em `test_hpa_metrics` (pod pedido antes da janela não conta) e `test_hpa_series`. Agora são 21 testes.
 - `.gitignore`: `pilotos/` (dados de piloto guardados fora de `results/`).
-- `docs/PILOTOS.md`: piloto 5. `DECISOES_METODO.md`: item 18. Atualizados `HPA.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto.
+- `docs/PILOTOS.md`: piloto 5. `DECISOES_METODO.md`: item 18. Atualizados `HPA.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `ESTADO_DO_PROJETO.md` e `EXPLICACAO.md`.
 
 ## Novo (29/out): avaliação só até o fim do k6 (decisão 17)
 
@@ -144,13 +156,13 @@
 - `make selftest`: `test_eval_end` e o caso novo em `test_hpa_metrics`. `test_eval_skip` passa a isolar a acomodação. Agora são 20 testes.
 - `Makefile` e `.env.example`: `EVAL_END_MARGIN_SECONDS=15`.
 - **Fase 1 corrigida**, gerada no notebook a partir do backup da VPS, em `fase1_corrigido/`. Antes, o "como rodou" foi reproduzido célula por célula: 360 linhas, ICs, testes t e o ranking. Resultado: LSTM 0,485 e IF 0,482; a regra do B continua dando LSTM; offline × online continua 14/2/2.
-- Atualizados `FASE1_EXPLICADA.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `COMANDOS.md`, `RUNBOOK_VPS_VPN.md` e regras do projeto.
+- Atualizados `FASE1_EXPLICADA.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `COMANDOS.md` e `RUNBOOK_VPS_VPN.md`.
 
 ## Novo (29/out): pontos-fantasma no fim do CSV (decisão 16)
 
 - **Causa:** a janela exportada (`DURATION`: 720/780/960 s, a da qualificação) passa do fim dos roteiros k6 (618/560/910 s). A exportação rodava ~15 s depois do fim do k6 e pedia pontos do futuro. O Prometheus os preenche repetindo o último valor dos gauges (memória, alertas online, réplicas) por até 5 min. No rampup são ~36 pontos por execução (23% do CSV). A qualificação tem o mesmo rabo.
 - **Fase 1:** fica como foi, e nenhum número oficial muda. A sensibilidade (conta que reproduz exatamente os F1 oficiais, sem os pontos-fantasma) dá LSTM 0,481 e IF 0,476: a escolha do B não muda. Registrado no item 9 e no item 16 de `DECISOES_METODO.md`, e em `FASE1_EXPLICADA.md`.
-- **Fase 3:** o `bin/experiment.sh` espera até início + `DURATION` + 15 s antes de exportar e de rodar o `hpa_metrics.py`, para o `pod_seconds` e o CSV só terem dado medido. A Fase 3 passa de ~32 h para ~35 h. Atualizados `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `HPA.md`, `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e regras do projeto.
+- **Fase 3:** o `bin/experiment.sh` espera até início + `DURATION` + 15 s antes de exportar e de rodar o `hpa_metrics.py`, para o `pod_seconds` e o CSV só terem dado medido. A Fase 3 passa de ~32 h para ~35 h. Atualizados `COMANDOS.md`, `RUNBOOK_VPS_VPN.md`, `HPA.md`, `ESTADO_DO_PROJETO.md` e `EXPLICACAO.md`.
 
 ## Novo (29/out): drift e shift decididos antes da Fase 3
 
@@ -158,19 +170,19 @@
   - **14, drift:** na Fase 1 a latência da fase normal subiu de 2 a 5 vezes da madrugada ao meio-dia. Fica mantido o desenho em blocos sorteados; o p95 do aquecimento é registrado e o equilíbrio entre A, B e C é mostrado antes do tempo de reação.
   - **15, shift:** o shift começou com 3–7 réplicas. Ele é mantido, e o tempo de reação conta só as janelas com reação, com as janelas sem reação e as réplicas iniciais ao lado. É o que o `hpa_metrics.py` já calcula.
 - `bin/experiment.sh`: nova coluna `warmup_p95_ms` no `results/warmup_log.csv`. É o p95 da latência nos últimos 4 min do aquecimento, lido antes do modo, e aparece também no log do fim do aquecimento. Os itens por pod e o p95 saem numa só chamada ao Prometheus, para caber na margem antes da troca. O `warmup_log.csv` no formato anterior (o da Fase 1) é guardado à parte como `warmup_log.antigo.<data>.csv` na 1ª execução seguinte.
-- Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `HPA.md`, `DETECTOR_ONLINE.md` e regras do projeto.
+- Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `HPA.md` e `DETECTOR_ONLINE.md`.
 - **Novo `docs/FASE1_EXPLICADA.md`:** a Fase 1 definitiva explicada de forma didática (receita, placar, regra do B, offline × online, achados de ambiente, estatística passo a passo com o exemplo real LSTM × IF no burst, o que falta). As figuras ficam em `docs/figs/fase1/`, geradas dos CSVs reais.
 - Item 9 (ameaças): novo achado. No rampup e no shift, o roteiro sobe a carga antes da 1ª anomalia do gabarito, e os detectores online alarmam em 57–99% desses pontos (5–19% no burst). Os pilotos que validaram "alertas iniciais perto de 0%" eram só de burst.
 
 ## Novo (29/out): modo D não usado
 
-- `docs/DECISOES_METODO.md`, item 5: modo D fechado em 29/out/2026 (Ricardo), **não usado**. A Fase 3 roda A, B e C (`HPA_MODES=A,B,C`, o padrão; nada muda no código). Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `HPA.md`, regras do projeto.
+- `docs/DECISOES_METODO.md`, item 5: modo D fechado em 29/out/2026 (Ricardo), **não usado**. A Fase 3 roda A, B e C (`HPA_MODES=A,B,C`, o padrão; nada muda no código). Atualizados `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md` e `HPA.md`.
 - `RUNBOOK_VPS_VPN.md`: checklist da Fase 3 com cópia dos resultados da Fase 1, `DETECTOR_ALGOS` só com o detector do B, `HPA_MODES=A,B,C` e verificação do throttling.
 
 ## Novo (28/out): decisões de método fechadas antes da Fase 1
 
 - `docs/DECISOES_METODO.md`: todas as decisões 1–13 **fechadas em 28/out/2026**, alinhadas com o orientador, antes da Fase 1 (inclusive 8: SLO 500 ms; 9: ameaças à validade; 10: IC t·S/√N; 13: ANOVA dispensada). Em aberto só o modo D, a decidir antes da Fase 3. Nenhuma mudança de método: o que estava adotado e implementado fica como está.
-- Atualizados para o mesmo estado: `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `PILOTOS.md`, `DETECTOR_ONLINE.md`, regras do projeto.
+- Atualizados para o mesmo estado: `ESTADO_DO_PROJETO.md`, `EXPLICACAO.md`, `PILOTOS.md` e `DETECTOR_ONLINE.md`.
 - `RUNBOOK_VPS_VPN.md`: checklist com 19 testes no `selftest` e o `grep` do `.env` cobrindo `REPS`, `WARMUP_*`, `RESTART_APP` e `EVAL_*`.
 
 ## Novo (19/out): as duas famílias de comparação, lado a lado
@@ -180,12 +192,12 @@
 
 ## Novo (18/out): explicação didática e offline × online sem "teto"
 
-- **`docs/EXPLICACAO.md`** (novo): o projeto explicado para reunião e banca (lanchonete, fases, detectores, pilotos como investigação, regras de avaliação, estatística, regra do campeão, limitações, 6 frases-chave). Resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`; o regras do projeto exige atualizá-lo junto com o `ESTADO_DO_PROJETO.md`.
+- **`docs/EXPLICACAO.md`** (novo): o projeto explicado de forma didática (lanchonete, fases, detectores, pilotos como investigação, regras de avaliação, estatística, regra do campeão, limitações). Resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`.
 - **Offline não é um limite superior do online:** `DETECTOR_ONLINE.md` (seção 4) ganhou a tabela "A régua de cada forma" (IF/LOF offline com cota fixa de 10% via `contamination`; AE/LSTM offline com régua contaminada pelos picos; online com μ + K·σ dos últimos 5 min, sem cota) e o texto "O offline não é um teto". A família offline × online mede o efeito de operar online e pode favorecer qualquer lado (registrado no item 2 de `DECISOES_METODO.md` e no `ESTADO_DO_PROJETO.md`); o runbook deixou de chamar o offline de "limite superior".
 
 ## Novo (18/out): estado do projeto e fechamento das decisões antes da Fase 1
 
-- **`docs/ESTADO_DO_PROJETO.md`** (novo): resumo completo do que está feito, decidido e pendente (fases, infraestrutura, detectores, procedimento, estatística, decisões, pilotos, comandos, próximos passos). Link no README e no mapa do regras do projeto. É um resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`; o regras do projeto passa a exigir que toda mudança de decisão ou piloto o atualize também.
+- **`docs/ESTADO_DO_PROJETO.md`** (novo): resumo completo do que está feito, decidido e pendente (fases, infraestrutura, detectores, procedimento, estatística, decisões, pilotos, comandos, próximos passos). Link no README. É um resumo: em divergência valem `DECISOES_METODO.md` e `PILOTOS.md`.
 - **DECISOES_METODO:** item 5 esclarece que na Fase 3 o detector roda **igual em A, B e C** e que o modo D precisa ser decidido antes (proposta: sai); novo item **12** (janela do detector fixa em 5 min, sensibilidade só por replay: parâmetro do detector ao vivo, não pode mudar depois da Fase 1); novo item **13** (proposta: ANOVA dispensada, porque as comparações são planejadas); item 11 registra que a base do EWMA offline inclui a oscilação da troca.
 - **Correções de texto:** retreino do LSTM como hipótese **improvável, não descartada**; alertas iniciais do piloto 4 em B e C = 0–30% (o EWMA do B teve 0).
 
@@ -215,7 +227,7 @@
 - **`make check-inicio`:** cada célula mostra as duas partes do trecho, [0, 60) s (acomodação) e [60 s, 1ª anomalia) (conta na avaliação), para separar a troca do ruído.
 - **`make selftest`:** `test_eval_skip` (fora da pontuação, nenhum pico cortado, 0 s = avaliação antiga) e `test_check_inicio` com as duas partes. Agora 14 testes.
 - **Regressão:** com `EVAL_SKIP_SECONDS=0`, o offline nos 9 CSVs da qualificação é idêntico ao `results_qualificacao/detection_results.csv` (45/45) e o LSTM offline idêntico à validação dele (9/9); o replay online é idêntico à validação do piso nas entradas (54/54); com 60 s, os pontos anômalos avaliados são os mesmos (54/54).
-- **Decisões de método:** `docs/DECISOES_METODO.md` (antes `DECISOES_METODOS_ABERTAS.md`, não versionado) passa a ser a fonte única, com link no README e no regras do projeto; os itens 1, 3, 4, 5 e 6 marcados como adotados em 16/out/2026 (aguardando o orientador; 1 e 6 com implementação pendente).
+- **Decisões de método:** `docs/DECISOES_METODO.md` (antes `DECISOES_METODOS_ABERTAS.md`, não versionado) passa a ser a fonte única, com link no README; os itens 1, 3, 4, 5 e 6 marcados como adotados em 16/out/2026 (aguardando o orientador; 1 e 6 com implementação pendente).
 
 ## Corrigido
 

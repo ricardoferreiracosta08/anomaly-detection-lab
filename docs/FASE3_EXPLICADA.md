@@ -1,6 +1,6 @@
 # A Fase 3 explicada
 
-> **Explicação didática da Fase 3 definitiva** (30/out a 01/nov/2026): o que aconteceu, o que os números querem dizer e se o resultado invalida a pesquisa. Serve para a reunião com o orientador e para a banca. Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e o relatório gerado `results/stats/phase3/relatorio.md` (números). Todos os números daqui saem desse relatório, do `results/hpa/hpa_results.csv`, do `results/warmup_log.csv` e das séries de réplicas (`results/hpa/series/`). Backup: `VPS/FASE 3/backup_fase3_2026-11-01` no notebook.
+> **Explicação didática da Fase 3 definitiva** (30/out a 01/nov/2026): o que aconteceu, o que os números querem dizer e se o resultado invalida a pesquisa. Em caso de divergência, valem [DECISOES_METODO.md](DECISOES_METODO.md) (decisões) e o relatório gerado `results/stats/phase3/relatorio.md` (números). Todos os números daqui saem desse relatório, do `results/hpa/hpa_results.csv`, do `results/warmup_log.csv` e das séries de réplicas (`results/hpa/series/`).
 
 ## 0. Em uma frase
 
@@ -134,9 +134,9 @@ Entre A e B, a escolha depende de quanto vale latência contra pods: é um **com
 **Não invalida, e não deve ser rodado de novo.**
 
 - **Um resultado nulo é um resultado.** A pergunta era "o HPA com detector reage antes?". A resposta medida, com método fixado antes e 90 execuções, é "não, pelo tempo de reação; mas antecipa a escala no burst e reduz a latência, a um custo". Isso responde à pergunta da pesquisa.
-- **O que dá credibilidade ao trabalho é justamente não ter mudado nada depois de ver os dados.** Refazer as fases mudando a métrica, o teto ou o detector agora seria escolher o método pelo resultado (é a regra "nunca mudar uma decisão fechada depois de ver resultados"). A banca valoriza um nulo honesto mais do que um positivo "ajustado".
+- **O que dá credibilidade ao trabalho é justamente não ter mudado nada depois de ver os dados.** Refazer as fases mudando a métrica, o teto ou o detector agora seria escolher o método pelo resultado (é a regra "nunca mudar uma decisão fechada depois de ver resultados").
 - **Fases 1 e 2 não são afetadas.** A Fase 1 (qual detector é melhor ao vivo) e a Fase 2 (integração do detector ao HPA, que funcionou nas 30 execuções do B) estão completas e válidas.
-- **O que é legítimo fazer** (sem refazer nada): relatar a análise da seção 5 como **exploratória**, discutir o teto de 8 pods e a definição do tempo de reação como **limitações**, e propor como **trabalhos futuros** um experimento com teto maior e uma métrica de antecipação (por exemplo, réplicas disponíveis no início do pico), definidos antes de rodar. Se o orientador quiser um experimento extra, ele entra **como novo, separado e rotulado**, nunca substituindo a Fase 3.
+- **O que é legítimo fazer** (sem refazer nada): relatar a análise da seção 5 como **exploratória**, discutir o teto de 8 pods e a definição do tempo de reação como **limitações**, e propor como **trabalhos futuros** um experimento com teto maior e uma métrica de antecipação (por exemplo, réplicas disponíveis no início do pico), definidos antes de rodar. Um experimento extra, se houver, entra **como novo, separado e rotulado**, nunca substituindo a Fase 3.
 
 ## 9. Limitações a declarar
 
@@ -154,22 +154,12 @@ Os limites vêm da **qualificação** (abr/2026) e foram mantidos sem mudança, 
 - **Piso 2:** com 1 pod, qualquer reinício derruba a app (ponto único de falha); com 2, o Service já balanceia desde o início; e toda execução parte da mesma condição (2 réplicas).
 - **Teto 8:** 8 pods × 300m de limite = **2,4 núcleos**, dentro dos **6 núcleos** do cluster, com folga para o detector (0,5), o Prometheus, o Grafana e o k3s. Um teto maior faria os pods disputarem CPU, e a latência pioraria por falta de máquina, misturando esse efeito com o do HPA. Além disso, todo HPA em produção tem um `maxReplicas`, que é o limite de custo.
 
-Texto para a dissertação:
+Em resumo:
 
 > Os limites do HPA foram mantidos em 2 e 8 réplicas, os mesmos da etapa de qualificação, para preservar a comparabilidade. O piso de 2 réplicas evita ponto único de falha e garante a mesma condição inicial em todas as execuções. O teto de 8 réplicas mantém a demanda máxima da aplicação (8 × 300m = 2,4 núcleos) dentro da capacidade reservada ao cluster (6 núcleos), sem disputa de CPU com o detector e o monitoramento, e representa o limite de custo presente em todo HPA de produção. Na Fase 3, esse teto foi atingido pelos modos B e C no rampup e pelo modo B no burst, retirando esses picos do cálculo do tempo de reação; o efeito é declarado como limitação.
 
-## 10. Frases prontas para a reunião e a banca
-
-1. "Na métrica principal, o resultado foi nulo: o detector não fez o HPA reagir mais rápido."
-2. "Mas no burst o detector fez o HPA escalar antes do pico e reduziu a latência do usuário quase à metade, ao custo de 20% mais pods."
-3. "Escalar cedo pela CPU (modo C) não teve esse ganho; mas, como o C não gastou o mesmo que o B, não dá para separar o efeito do detector do efeito dos pods a mais. Isso pede um controle com o mesmo custo do B."
-4. "O tempo de reação, como foi definido antes, não enxerga a antecipação, e o teto de 8 pods tira picos da comparação; isso é limitação declarada e trabalho futuro, não algo a corrigir depois de ver os dados."
-5. "O ambiente ficou equilibrado entre os modos: o p95 do aquecimento, medido antes do tratamento, é igual em A, B e C."
-6. "Não há um modo vencedor: A é o mais barato, B compra latência no burst com pods, e C custa mais sem ganho."
-7. "Piso 2 e teto 8 vêm da qualificação: 2 evita ponto único de falha; 8 pods cabem nos 6 núcleos do cluster sem disputa de CPU."
-
-## 11. Arquivos
+## 10. Arquivos
 
 - Relatório e ICs: `results/stats/phase3/relatorio.md`, `1_IC_hpa.csv`, `2_teste_t.csv`, `estatistica.xlsx`, figuras `fig_ic_*` e `fig_interacao_*`.
 - Dados: `results/hpa/hpa_results.csv`, `results/warmup_log.csv`, `results/hpa/series/` (90 séries), `datasets_hpa/` (90 CSVs).
-- Gráficos desta explicação: `VPS/FASE 3/graficos_fase3/` no notebook (inclui uma figura por execução, um PDF com as 90 e o script `graficos_fase3.py`); cópias em [figs/fase3/](figs/fase3/).
+- Gráficos desta explicação: [figs/fase3/](figs/fase3/); as figuras do artigo saem de `scripts/gerar_figuras.py`.

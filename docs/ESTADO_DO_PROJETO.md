@@ -137,22 +137,15 @@ Detalhes: [PILOTOS.md](PILOTOS.md). Dados de piloto nunca entram na dissertaçã
 - Git: commits por lotes, feitos pelo autor.
 - Nunca expor `.env` nem kubeconfig; `BIND_ADDR` nunca `0.0.0.0`; nada de `docker system prune` na VPS.
 
-
-
-## 10. Próximos passos
+## 10. Situação
 
 1. **Na VPS (feito):** `git pull`; `EVAL_TOLERANCE_SECONDS=30` no `.env`; `make build-analysis`; `make selftest` (22 testes).
 2. **Decisões:** todas as da Fase 1 fechadas em 28/out/2026 (alinhadas com o orientador). Modo D fechado em 29/out/2026: não usado.
 3. **Fase 1: concluída** em 29/out/2026 (00h24–13h), com 30 execuções, todas com resumo do k6. A regra escolhe o **LSTM online** (F1 0,485 no corrigido, que é o principal pela decisão 17; 0,476 "como rodou"; MTTD 11,6 s). Explicação completa: [FASE1_EXPLICADA.md](FASE1_EXPLICADA.md). Achados de ambiente: drift ao longo do dia e shift começando escalado; ambos tratados nas decisões 14 e 15.
 4. **Piloto 5** (30/out/2026): pipeline ok; gerou a decisão 18 e foi recalculado.
-5. **Fase 3: concluída** de 30/out 18h19 a 01/nov/2026 ~08h50, 90 execuções (B = LSTM), backup no notebook (`VPS/FASE 3/backup_fase3_2026-11-01`). Explicação completa: [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md).
+5. **Fase 3: concluída** de 30/out 18h19 a 01/nov/2026 ~08h50, 90 execuções (B = LSTM). Explicação completa: [FASE3_EXPLICADA.md](FASE3_EXPLICADA.md).
    - **Ambiente equilibrado** (decisão 14): p95 do aquecimento com ICs sobrepostos em A, B e C nos 3 cenários; sem o drift da Fase 1.
    - **Métrica principal (tempo de reação): nenhuma diferença significativa** nas 9 comparações (burst A 43,5 / B 38,5 / C 42,5 s).
    - **Burst, secundárias:** B reduz o p95 nas anomalias (422 → 266 ms, p = 0,0005) e as requisições > 250 ms (15,2% → 4,0%) e > 500 ms (2,3% → 0,7%), com +20% de pod·s e 1,5 scale-up falso por execução. Rampup e shift: sem diferença de latência.
    - **Critério pré-registrado não atendido.** Explicação exploratória (séries de réplicas): o B escala **antes** dos picos (cauda de alertas do LSTM) e chega ao teto de 8 pods; o tempo de reação não conta pedidos anteriores ao pico, e os picos no teto saem da média.
    - Uma falha de permissão (`datasets_hpa/` com dono root) na 1ª tentativa do `B_shift_run1`; refeita do zero, sem aproveitar dados.
-6. **Agora:**
-   - levar ao orientador o resultado e a leitura "antecipa, mas a métrica não capta"; confirmar as decisões 14 a 18 e o SLO a 250 ms;
-   - escrever: resultado nulo na principal, ganho de latência no burst com custo, limitações (teto de 8, definição do tempo de reação, poder baixo no rampup e no shift) e trabalhos futuros. **Não refazer** nenhuma fase;
-   - opcional, até ~05/nov: a causa do drift da Fase 1 no Grafana (decisão 14, item 5), só observando;
-   - melhoria pendente: `bin/experiment.sh` parar no início se `datasets_hpa/` ou `results/` não forem graváveis.

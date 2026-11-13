@@ -90,7 +90,7 @@ Marque cada item **antes** do `make experiment` definitivo. Nenhum dado de pilot
 
 **Antes da Fase 3 (além dos itens acima, exceto o `make clean`, que apagaria a Fase 1):**
 
-- [ ] **`HPA_B_DETECTOR` escolhido pela Fase 1 e registrado** (no `.env`, no `docs/CHANGELOG.md` e no regras do projeto, com o motivo). Não trocar depois ([HPA.md](HPA.md), seção 3).
+- [ ] **`HPA_B_DETECTOR` escolhido pela Fase 1 e registrado** (no `.env` e no `docs/CHANGELOG.md`, com o motivo). Não trocar depois ([HPA.md](HPA.md), seção 3).
 - [ ] **Resultados da Fase 1 copiados para fora da VPS** (`scp -r <usuario>@<IP_DA_VPN>:~/anomaly-detection-lab/results results_fase1` no notebook). O `hpa-experiment` escreve em `results/` também.
 - [ ] **`DETECTOR_ALGOS=<detector do B>`** no `.env` (só ele; o modo D não é usado) e `make detector-deploy`; `make detector-logs` mostra só esse algoritmo.
 - [ ] **`HPA_MODES=A,B,C`** no `.env`.

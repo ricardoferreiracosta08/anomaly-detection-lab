@@ -6,6 +6,17 @@ e HPA proativo avaliado contra o HPA reativo (Fase 3).
 
 **Dissertação de Mestrado — PPGCC/UFMA — Ricardo F. Costa — 2026**
 
+## Artigo e dados
+
+- **Artigo (SBRC 2027):** *Avaliação Experimental de Detectores de Anomalias Baseados em Observabilidade Contínua para o Autoescalonamento Horizontal no Kubernetes*. Como citar: [CITATION.cff](CITATION.cff).
+- **Correspondência com o artigo:** Fase 1 = primeiro experimento (6 detectores, offline × online); Fase 2 = integração do detector online ao HPA; Fase 3 = segundo experimento (HPA nos modos A, B e C).
+- **Dados:** os CSVs e relatórios das Fases 1 e 3 não ficam no repositório (`results/` e `datasets*/` são gerados). Estão no Zenodo: DOI *a preencher*. Os da qualificação estão em `datasets_qualificacao/` e `results_qualificacao/`.
+- **Figuras e tabela do artigo** (na imagem de análise, `make build-analysis`):
+  - `scripts/gerar_figuras.py --ic-fase1 <stats/phase1/1_IC_detectores.csv> --fase3 <pasta com results/ e datasets_hpa/> --saida <pasta>`: as duas figuras;
+  - `scripts/analise_exploratoria.py <results/hpa/series>`: réplicas no início de cada anomalia e janelas no teto (análise exploratória, feita depois dos resultados).
+- **Ambiente:** a execução definitiva usou uma VPS acessada por VPN; endereços, portas e núcleos vêm do `.env` (modelo: [.env.example](.env.example)). Para reproduzir em outra máquina, ver [docs/RUNBOOK_VPS_VPN.md](docs/RUNBOOK_VPS_VPN.md).
+- **Licença:** código sob [MIT](LICENSE).
+
 ## Pré-requisitos
 
 Docker 24+. `./setup.sh` instala k3d e kubectl. k6, Python, scikit-learn, PyTorch (só CPU, para o LSTM) e o detector online rodam em container.
@@ -141,14 +152,14 @@ k8s/detector/           detector online (template)
 k8s/adapter/            Prometheus Adapter (métrica externa anomaly_level)
 k8s/hpa/                hpa-cpu.yaml (modos A/C), hpa-anomaly.yaml (modos B/D)
 scripts/                imagem de análise: detectors, lstm_model, online_detector, export_metrics,
-                        k6_summary, hpa_metrics, stats_tlc, check_inicio, detector_ciclo, selftest
+                        k6_summary, hpa_metrics, stats_tlc, check_inicio, detector_ciclo, selftest,
+                        gerar_figuras e analise_exploratoria (artigo)
 datasets_qualificacao/  9 CSVs reais da qualificação
 results_qualificacao/   resultados da qualificação (3 e 5 detectores, online, estatística)
-docs/                   runbook VPS+VPN, HPA (Fase 3), detector online, Grafana, pilotos, decisões de método, comandos, changelog, Git, READMEs anteriores
+docs/                   runbook VPS+VPN, HPA (Fase 3), detector online, Grafana, pilotos, decisões de método, comandos, changelog, READMEs anteriores
 ```
 
 O que mudou em relação à versão anterior e por quê: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 Decisões de método (tomadas e em aberto, com data e motivo): [docs/DECISOES_METODO.md](docs/DECISOES_METODO.md).
-Resumo completo do estado atual do projeto (fases, detectores, procedimento, estatística, decisões, pilotos, próximos passos): [docs/ESTADO_DO_PROJETO.md](docs/ESTADO_DO_PROJETO.md). Explicação didática, para reunião e banca: [docs/EXPLICACAO.md](docs/EXPLICACAO.md).
+Resumo completo do estado atual do projeto (fases, detectores, procedimento, estatística, decisões, pilotos, situação): [docs/ESTADO_DO_PROJETO.md](docs/ESTADO_DO_PROJETO.md). Explicação didática do projeto: [docs/EXPLICACAO.md](docs/EXPLICACAO.md).
 Execuções de teste (pilotos) e as decisões que motivaram: [docs/PILOTOS.md](docs/PILOTOS.md). **Regra:** cada execução de teste relevante é registrada em `docs/PILOTOS.md`; os dados dos pilotos não entram nos resultados da dissertação.
-Como enviar para o GitHub: [docs/GIT.md](docs/GIT.md).
