@@ -11,7 +11,10 @@ authors:
   - family-names: "Teixeira"
     given-names: "Mário A. M."
     affiliation: "Universidade Federal do Maranhão (UFMA)"
-# TODO antes de publicar: acrescentar "doi:" com o DOI do Zenodo dos dados
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.24183580"
+    description: "Dados das Fases 1 e 3 (Zenodo)"
 preferred-citation:
   type: conference-paper
   title: "Avaliação Experimental de Detectores de Anomalias Baseados em Observabilidade Contínua para o Autoescalonamento Horizontal no Kubernetes"

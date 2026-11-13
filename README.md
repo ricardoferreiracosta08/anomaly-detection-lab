@@ -10,7 +10,7 @@ e HPA proativo avaliado contra o HPA reativo (Fase 3).
 
 - **Artigo (SBRC 2027):** *Avaliação Experimental de Detectores de Anomalias Baseados em Observabilidade Contínua para o Autoescalonamento Horizontal no Kubernetes*. Como citar: [CITATION.cff](CITATION.cff).
 - **Correspondência com o artigo:** Fase 1 = primeiro experimento (6 detectores, offline × online); Fase 2 = integração do detector online ao HPA; Fase 3 = segundo experimento (HPA nos modos A, B e C).
-- **Dados:** os CSVs e relatórios das Fases 1 e 3 não ficam no repositório (`results/` e `datasets*/` são gerados). Estão no Zenodo: DOI *a preencher*. Os da qualificação estão em `datasets_qualificacao/` e `results_qualificacao/`.
+- **Dados:** os CSVs e relatórios das Fases 1 e 3 não ficam no repositório (`results/` e `datasets*/` são gerados). Estão no Zenodo: [10.5281/zenodo.24183580](https://doi.org/10.5281/zenodo.24183580). Os da qualificação estão em `datasets_qualificacao/` e `results_qualificacao/`.
 - **Figuras e tabela do artigo** (na imagem de análise, `make build-analysis`):
   - `scripts/gerar_figuras.py --ic-fase1 <stats/phase1/1_IC_detectores.csv> --fase3 <pasta com results/ e datasets_hpa/> --saida <pasta>`: as duas figuras;
   - `scripts/analise_exploratoria.py <results/hpa/series>`: réplicas no início de cada anomalia e janelas no teto (análise exploratória, feita depois dos resultados).

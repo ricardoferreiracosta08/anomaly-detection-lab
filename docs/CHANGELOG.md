@@ -95,6 +95,10 @@
 - **Piso relativo nas entradas do detector online** (`DETECTOR_FEATURE_FLOOR`, padrão 0,01; 0 = desligado): σ de cada feature = máx(σ, piso·|μ|) na padronização pela referência (`_scale` em `online_detector.py`). Mesma lógica do piso das notas. Vale para IF, LOF, DBSCAN, AE e LSTM (o EWMA usa a latência bruta). No ConfigMap (e no hash do pod) e no `make online-replay`. `make selftest`: `test_feature_floor` (13 testes).
   - **Validação** (replay dos 9 CSVs da qualificação, 6 detectores, piso das notas 0,05; [validacao/piso_entrada.csv](validacao/piso_entrada.csv), [DETECTOR_ONLINE.md](DETECTOR_ONLINE.md#8-validação-do-piso-nas-entradas)): com 0 o replay é idêntico ao anterior (54/54); com 0,01 o F1 fica igual em 10 de 18 combinações e varia de −0,023 a +0,028 nas outras (média −0,002), sem perda sistemática.
 
+## Novo (13/nov): DOI dos dados
+
+- Dados das Fases 1 e 3 publicados no Zenodo: [10.5281/zenodo.24183580](https://doi.org/10.5281/zenodo.24183580). DOI no README e no `CITATION.cff`.
+
 ## Novo (12/nov): scripts da análise exploratória da Fase 3
 
 - `scripts/analise_exploratoria.py`: réplicas pedidas no início de cada anomalia e janelas iniciadas no teto (8), a partir de `results/hpa/series/`. Descritiva, feita depois dos resultados. Uso: `python3 scripts/analise_exploratoria.py <results/hpa/series>`.
